@@ -33,6 +33,7 @@
 
 #include "physics.h"
 #include "strike.h"
+#include "pose.h"
 
 typedef struct {
     /* Server stance — on the player's own side, near the baseline.
@@ -214,5 +215,16 @@ bool serve_solve_toss(ServeParams *p, double fwd_of_baseline_m, double apex_h_m)
 double serve_solve_toss_side(ServeParams *p, double side_of_ls_m);
 
 void serve_result_free(ServeResult *r);
+
+/* Build a stick-figure pose for the player at the moment of contact, from a
+ * simulated shot. Anchors the body's shoulder line on the swing geometry
+ * (ls_pos / swing_pivot), matches the figure's arm + racket to the shot's, poses
+ * the legs/spine, raises the off-hand, and IKs the racket arm so the tip lands on
+ * contact_pos (pinned exactly — the racket meets the ball there). Fills `out`
+ * with world-frame joint positions for drawing. Works for serves and
+ * groundstrokes (the contact just sits lower/forward). Right-handed for now (a
+ * left-hander draws as a right-hander — pose IK is the right arm). Pure C, used
+ * by every front-end (pene, pepper) so the body derivation lives once. */
+void serve_skeleton(const ServeParams *p, const ServeResult *r, PoseJoints *out);
 
 #endif

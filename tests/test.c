@@ -346,6 +346,33 @@ static void test_pose_drive(void) {
     serve_result_free(&ra); serve_result_free(&rb);
 }
 
+static double dist3v(const double a[3], const double b[3]) {
+    double dx=a[0]-b[0], dy=a[1]-b[1], dz=a[2]-b[2];
+    return sqrt(dx*dx+dy*dy+dz*dz);
+}
+/* serve_skeleton: the shared body derivation lands the figure on the swing
+ * geometry with the racket tip on the contact — for serves and groundstrokes. */
+static void test_serve_skeleton(void) {
+    printf("serve_skeleton (shared body derivation):\n");
+    ShotMode modes[] = { MODE_SERVE_DEUCE, MODE_GROUNDSTROKE };
+    const char *nm[] = { "serve", "groundstroke" };
+    for (int i = 0; i < 2; i++) {
+        ServeParams p; serve_params_defaults(&p, modes[i]);
+        ServeResult r = serve_simulate(&p);
+        if (!r.contact) { CHECK(0, "%s makes contact (needed for skeleton)", nm[i]); serve_result_free(&r); continue; }
+        PoseJoints j; serve_skeleton(&p, &r, &j);
+        printf("    %-12s tip err %.3f · LS off %.2f · RS off %.2f · head y=%.2f pelvis y=%.2f\n",
+               nm[i], dist3v(j.r_racket_tip, r.contact_pos),
+               dist3v(j.l_shoulder, r.ls_pos), dist3v(j.r_shoulder, r.swing_pivot),
+               j.head_center[1], j.pelvis[1]);
+        CHECK(dist3v(j.r_racket_tip, r.contact_pos) < 1e-6, "%s: racket tip pinned to contact", nm[i]);
+        CHECK(dist3v(j.l_shoulder, r.ls_pos) < 0.03, "%s: left shoulder on LS", nm[i]);
+        CHECK(dist3v(j.r_shoulder, r.swing_pivot) < 0.03, "%s: right shoulder on RS", nm[i]);
+        CHECK(j.head_center[1] > j.pelvis[1], "%s: head above pelvis", nm[i]);
+        serve_result_free(&r);
+    }
+}
+
 int main(void) {
     printf("=== pepper math-core tests ===\n");
     test_strike_core();
@@ -359,6 +386,7 @@ int main(void) {
     test_humidity();
     test_pose();
     test_pose_drive();
+    test_serve_skeleton();
     printf("=== %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

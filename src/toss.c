@@ -735,3 +735,69 @@ void serve_result_free(ServeResult *r) {
     trajectory_free(&r->flight);
     trajectory_free(&r->flight_nospin);
 }
+
+void serve_skeleton(const ServeParams *p, const ServeResult *r, PoseJoints *out) {
+    /* Bone lengths from the player's height (acromion ≈ 0.818·stature), racket
+     * matched to the shot's. */
+    double height = (p->shoulder_height_m > 0.5) ? p->shoulder_height_m / 0.818 : 1.86;
+    Skeleton skel;
+    skeleton_from_height(&skel, height);
+
+    /* Match the figure's racket arm to the shot's geometry exactly, so the
+     * contact point (radius arm + racket from RS) is reachable and the IK lands
+     * the tip on it instead of clamping short. */
+    if (p->racket_len_m > 0.3) skel.racket = p->racket_len_m;
+    if (p->arm_length_m  > 0.3) {
+        double arm = p->arm_length_m;
+        skel.upper_arm = arm * (0.16 / 0.34);   /* keep the upper:fore ratio */
+        skel.forearm   = arm * (0.18 / 0.34);
+    }
+
+    /* Shoulder midpoint + LS→RS span from the swing geometry. */
+    double smx = 0.5 * (r->ls_pos[0] + r->swing_pivot[0]);
+    double smy = 0.5 * (r->ls_pos[1] + r->swing_pivot[1]);
+    double smz = 0.5 * (r->ls_pos[2] + r->swing_pivot[2]);
+    double dx = r->swing_pivot[0] - r->ls_pos[0];
+    double dy = r->swing_pivot[1] - r->ls_pos[1];
+    double dz = r->swing_pivot[2] - r->ls_pos[2];
+    double shspan = sqrt(dx*dx + dy*dy + dz*dz);
+    if (shspan > 0.10) skel.shoulder_half = 0.5 * shspan;   /* land shoulders on LS/RS */
+
+    Pose pose;
+    memset(&pose, 0, sizeof pose);
+    pose.spine_pitch_deg = -6.0;   /* slight back arch at full extension */
+    pose.spine_roll_deg  =  0.0;
+
+    /* Place the pelvis so FK's spine_top (the shoulder midpoint) lands on the
+     * shot's shoulder midpoint, accounting for the spine tilt. */
+    double pitch = pose.spine_pitch_deg * M_PI / 180.0;
+    double sdir[3] = { -sin(pitch), cos(pitch), 0.0 };
+    pose.com[0] = smx - skel.torso * sdir[0];
+    pose.com[1] = smy - skel.torso * sdir[1];
+    pose.com[2] = smz - skel.torso * sdir[2];
+
+    /* Align FK's shoulder line with LS→RS: yaw = atan2(−dz, dx). */
+    double yaw = atan2(-dz, dx) * 180.0 / M_PI;
+    pose.shoulder_yaw_deg = yaw;
+    pose.hip_yaw_deg      = yaw;
+
+    pose.knee_flex_l_deg  =  8.0;  pose.knee_flex_r_deg  =  8.0;
+    pose.ankle_flex_l_deg = 15.0;  pose.ankle_flex_r_deg = 15.0;
+    pose.l_arm_alpha_deg  = 150.0; pose.l_arm_beta_deg   = 30.0;
+    pose.l_elbow_flex_deg =  15.0; pose.l_wrist_flex_deg =  0.0;
+    pose.r_arm_alpha_deg  = 150.0; pose.r_arm_beta_deg   = 10.0;
+    pose.r_elbow_flex_deg =  30.0; pose.r_wrist_flex_deg =  0.0;
+
+    PoseRig rig;
+    rig.prep = pose; rig.contact = pose; rig.skel = skel;
+    rig.scrub = 1.0; rig.swing_duration_s = 0.1;
+
+    pose_rig_ik_racket(&rig, &pose, r->contact_pos);
+    pose_fk(&pose, &skel, out);
+
+    /* Pin the racket tip to the contact: the analytic 2-link IK is loose for an
+     * overhead reach, and the racket physically meets the ball there. */
+    out->r_racket_tip[0] = r->contact_pos[0];
+    out->r_racket_tip[1] = r->contact_pos[1];
+    out->r_racket_tip[2] = r->contact_pos[2];
+}
