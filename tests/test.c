@@ -14,6 +14,7 @@
 #include "physics.h"
 #include "strike.h"
 #include "toss.h"
+#include "pose.h"
 
 static int g_pass = 0, g_fail = 0;
 
@@ -202,6 +203,86 @@ static void test_humidity(void) {
     CHECK(fabs(alt - 1200.0) < 1.0, "humid altitude round-trips, got %.1f m", alt);
 }
 
+/* ===== Biomechanics (pose) — FK / IK / sampling / inverse-FK ===== */
+static void test_pose(void) {
+    printf("pose: racket-tip IK:\n");
+    PoseRig rig;
+    pose_default_prep_forehand(&rig.prep);
+    pose_default_contact_forehand(&rig.contact);
+    rig.scrub = 1.0; rig.swing_duration_s = 0.15;
+    skeleton_from_height(&rig.skel, 1.78);
+
+    Pose p = rig.contact; PoseJoints j;
+    pose_fk(&p, &rig.skel, &j);
+    double tip0[3] = { j.r_racket_tip[0], j.r_racket_tip[1], j.r_racket_tip[2] };
+
+    pose_rig_ik_racket(&rig, &p, tip0);            /* no-op solve */
+    pose_fk(&p, &rig.skel, &j);
+    double e0 = hypot(hypot(j.r_racket_tip[0]-tip0[0], j.r_racket_tip[1]-tip0[1]),
+                      j.r_racket_tip[2]-tip0[2]);
+    CHECK(e0 < 0.05, "no-op IK lands the tip within 5 cm (err %.4f)", e0);
+
+    double t1[3] = { tip0[0] + 0.05, tip0[1], tip0[2] };
+    p = rig.contact; pose_rig_ik_racket(&rig, &p, t1); pose_fk(&p, &rig.skel, &j);
+    double e1 = hypot(hypot(j.r_racket_tip[0]-t1[0], j.r_racket_tip[1]-t1[1]),
+                      j.r_racket_tip[2]-t1[2]);
+    CHECK(e1 < 0.05, "+5cm target lands tip within 5 cm (err %.4f)", e1);
+
+    double far[3] = { tip0[0] + 5.0, tip0[1], tip0[2] };
+    p = rig.contact; pose_rig_ik_racket(&rig, &p, far); pose_fk(&p, &rig.skel, &j);
+    CHECK(isfinite(j.r_racket_tip[0]), "unreachable target clamps to a finite tip");
+
+    printf("pose: joint trajectory sampling:\n");
+    rig.swing_duration_s = 0.10;
+    enum { N = 16 }; PoseJoints joints[N];
+    pose_rig_sample_trajectory(&rig, N, joints);
+    PoseJoints cd; pose_fk(&rig.contact, &rig.skel, &cd);
+    double terr = hypot(hypot(joints[N-1].r_racket_tip[0]-cd.r_racket_tip[0],
+                              joints[N-1].r_racket_tip[1]-cd.r_racket_tip[1]),
+                        joints[N-1].r_racket_tip[2]-cd.r_racket_tip[2]);
+    CHECK(terr < 1e-6, "trajectory sample N-1 == contact FK");
+    double v[3], vmag = pose_rig_racket_tip_velocity(joints, N, rig.swing_duration_s, v);
+    printf("    racket-tip |v| = %.1f m/s\n", vmag);
+    CHECK(vmag > 10.0 && vmag < 80.0, "racket-tip speed in [10,80] m/s (got %.1f)", vmag);
+    rig.swing_duration_s = 0.05;
+    pose_rig_sample_trajectory(&rig, N, joints);
+    double vf[3], vmag_fast = pose_rig_racket_tip_velocity(joints, N, 0.05, vf);
+    CHECK(vmag_fast > vmag * 1.5, "shorter duration -> higher tip speed");
+
+    printf("pose: FK -> joints -> Pose round-trip:\n");
+    Skeleton skel; skeleton_from_height(&skel, 1.78);
+    Pose pr[3];
+    pose_default_contact_forehand(&pr[0]);
+    pose_default_contact_backhand_1h(&pr[1]);
+    pose_default_contact_serve_flat(&pr[2]);
+    const char *nm[3] = { "forehand", "1-hand bh", "flat serve" };
+    int all_ok = 1;
+    for (int k = 0; k < 3; k++) {
+        PoseJoints jj; pose_fk(&pr[k], &skel, &jj);
+        Pose back; pose_from_joints(&jj, &skel, &back);
+        double f[][2] = {
+            {pr[k].spine_pitch_deg, back.spine_pitch_deg}, {pr[k].spine_roll_deg, back.spine_roll_deg},
+            {pr[k].hip_yaw_deg, back.hip_yaw_deg}, {pr[k].shoulder_yaw_deg, back.shoulder_yaw_deg},
+            {pr[k].r_arm_alpha_deg, back.r_arm_alpha_deg}, {pr[k].r_arm_beta_deg, back.r_arm_beta_deg},
+            {pr[k].r_elbow_flex_deg, back.r_elbow_flex_deg}, {pr[k].r_wrist_flex_deg, back.r_wrist_flex_deg},
+            {pr[k].l_arm_alpha_deg, back.l_arm_alpha_deg}, {pr[k].l_arm_beta_deg, back.l_arm_beta_deg},
+            {pr[k].l_elbow_flex_deg, back.l_elbow_flex_deg},
+            {pr[k].knee_flex_r_deg, back.knee_flex_r_deg}, {pr[k].ankle_flex_r_deg, back.ankle_flex_r_deg},
+            {pr[k].knee_flex_l_deg, back.knee_flex_l_deg}, {pr[k].ankle_flex_l_deg, back.ankle_flex_l_deg},
+        };
+        double max_err = 0.0;
+        for (unsigned i = 0; i < sizeof(f)/sizeof(f[0]); i++)
+            if (fabs(f[i][0]-f[i][1]) > max_err) max_err = fabs(f[i][0]-f[i][1]);
+        printf("    %-12s max err %.4f deg\n", nm[k], max_err);
+        if (max_err > 1e-6) all_ok = 0;
+    }
+    CHECK(all_ok, "FK -> joints -> Pose recovers angles within 1e-6 deg");
+    PoseJoints j0; pose_fk(&pr[0], &skel, &j0);
+    Pose b0; pose_from_joints(&j0, &skel, &b0);
+    double comerr = hypot(hypot(b0.com[0]-pr[0].com[0], b0.com[1]-pr[0].com[1]), b0.com[2]-pr[0].com[2]);
+    CHECK(comerr < 1e-9, "CoM round-trips exactly");
+}
+
 int main(void) {
     printf("=== pepper math-core tests ===\n");
     test_strike_core();
@@ -212,6 +293,7 @@ int main(void) {
     test_swing_steers();
     test_toss_solver();
     test_humidity();
+    test_pose();
     printf("=== %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

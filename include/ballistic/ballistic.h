@@ -13,14 +13,16 @@
  *   strike.h   sliding-friction racket impact (compute_strike) + string model.
  *   toss.h     serve as two time-parametrised tracks (toss + swing) that meet:
  *              contact solver, inverse toss solver, serve_simulate.
+ *   pose.h     biomechanics — skeleton, forward + inverse kinematics, swing
+ *              sampling (the body half; the others are the ball half).
  *
  * Consumers may include this umbrella, or the individual headers as
- * <ballistic/physics.h> etc. The sim-box extent (and thus the court's world
- * offset) is overridable per consumer via -DBALLISTIC_SIM_X_MAX=… (see
- * physics.h). */
+ * <ballistic/physics.h> etc. The sim box + spin-cap default are runtime settings
+ * (ballistic_set_sim_box / ballistic_set_spin_cap_default). */
 
 #include "physics.h"
 #include "strike.h"
 #include "toss.h"
+#include "pose.h"
 
 #endif

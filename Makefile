@@ -8,10 +8,11 @@ CFLAGS  ?= -O2 -g -Wall -Wextra -std=c11
 # -Iinclude/ballistic → the library's own flat #include "physics.h"
 INCLUDE := -Iinclude -Iinclude/ballistic
 
-SRCS    := src/physics.c src/strike.c src/toss.c
+SRCS    := src/physics.c src/strike.c src/toss.c src/pose.c
 OBJS    := $(SRCS:.c=.o)
 HEADERS := include/ballistic/physics.h include/ballistic/strike.h \
-           include/ballistic/toss.h include/ballistic/ballistic.h
+           include/ballistic/toss.h include/ballistic/pose.h \
+           include/ballistic/ballistic.h
 
 LIB     := build/libballistic.a
 TESTBIN := build/balistic_test
