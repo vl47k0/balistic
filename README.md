@@ -19,7 +19,7 @@ consumers link the static lib and delete their local copies.
 | `<ballistic/physics.h>` | RK4 flight integrator (quadratic drag + Magnus + altitude wind/air-density model), ground bounce (`apply_impact`), court geometry, ball/verdict model |
 | `<ballistic/strike.h>` | sliding-friction racket impact (`compute_strike`) + string-bed model |
 | `<ballistic/toss.h>` | a swing meeting a ball track — `serve_simulate` covers **both** serves (the toss) and groundstrokes (an incoming ball), via the shared arm-sweep contact solver + the inverse toss solver |
-| `<ballistic/pose.h>` | **biomechanics** (the body half): skeleton, forward + inverse kinematics (`pose_fk` / `pose_from_joints`), 3-joint racket IK, swing sampling, named-shot presets |
+| `<ballistic/pose.h>` | **biomechanics** (the body half): skeleton, forward + inverse kinematics (`pose_fk` / `pose_from_joints`), 3-joint racket IK, swing sampling, named-shot presets, and `pose_drive_swing` (a pose pair → swing pace, so the body drives the shot) |
 | `<ballistic/ballistic.h>` | umbrella include for all four |
 
 JSON/UI adapters (rakija's `swing_api` + `body_rig_json`, pepper's `serve_api`)
@@ -29,7 +29,7 @@ are **not** here — they stay in the consuming app, which keeps this toolkit-fr
 
 ```bash
 make            # -> build/libballistic.a
-make test       # math-core assertions, no GUI toolkit (currently 23, seeded from pepper)
+make test       # math-core assertions, no GUI toolkit (48: ball + body + serves/groundstrokes)
 make debug      # -O0 -g3 for backtraces
 make install    # headers -> $PREFIX/include/ballistic, lib -> $PREFIX/lib (PREFIX=/usr/local)
 ```
@@ -71,7 +71,7 @@ serves every consumer** — no per-config build.
 ## Status
 
 Every consumer links the **one prebuilt `libballistic.a`**:
-- **balistic** stands alone, `make test` green (43/43 — the serve/strike/flight
+- **balistic** stands alone, `make test` green (48/48 — the serve/strike/flight
   suite seeded from pepper + the air/humidity model + a groundstroke (incoming
   ball) shot + the `pose` FK/IK group).
 - **pepper** links the lib (default config), deleted its copies.
