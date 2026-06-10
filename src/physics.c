@@ -17,15 +17,42 @@
 static const double G = 9.81;
 static const double P = AIR_RHO_SEA; /* air density at sea level (kg/m^3) */
 
+/* Standard sea-level pressure (Pa); the ISA pressure ratio scales it with alt. */
+#define AIR_P_SEA_PA  101325.0
+
+double saturation_vapor_pressure_pa(double temp_c) {
+    /* Tetens equation over water — good to ~0.1% across the court temp band. */
+    return 610.78 * exp(17.27 * temp_c / (temp_c + 237.3));
+}
+
+/* ρ_humid / ρ_dry at temperature, relative humidity, and total pressure.
+ * 1.0 for dry air; < 1 for moist (light vapor displaces heavier dry air). The
+ * 0.378 is 1 − M_vapor/M_dry (≈ 1 − 18.02/28.96). Clamped to a physical floor. */
+static double humidity_density_factor(double temp_c, double rh_pct, double p_total_pa) {
+    if (rh_pct <= 0.0) return 1.0;
+    if (rh_pct > 100.0) rh_pct = 100.0;
+    if (p_total_pa <= 0.0) return 1.0;
+    double pv = (rh_pct / 100.0) * saturation_vapor_pressure_pa(temp_c);
+    double f = 1.0 - 0.378 * pv / p_total_pa;
+    if (f < 0.90) f = 0.90;   /* even 45°C saturated air stays ~0.95 — floor for safety */
+    return f;
+}
+
 double air_density(double alt_m, double temp_c) {
+    return air_density_humid(alt_m, temp_c, 0.0);
+}
+double air_density_humid(double alt_m, double temp_c, double rel_humidity_pct) {
     /* Pressure ratio from the ISA troposphere (pressure exponent 5.25588), then
      * the ideal-gas temperature scaling relative to the reference day — so the
-     * user's stated court temperature (not a standard lapse) sets the density. */
+     * user's stated court temperature (not a standard lapse) sets the density.
+     * Humidity then thins it a touch more (vapor is lighter than dry air). */
     double base = 1.0 - 2.25577e-5 * (alt_m > 0.0 ? alt_m : 0.0);
     if (base < 0.05) base = 0.05;
     double press_ratio = pow(base, 5.25588);
     double temp_ratio = (AIR_TEMP_REF_C + 273.15) / (temp_c + 273.15);
-    return AIR_RHO_SEA * press_ratio * temp_ratio;
+    double humid = humidity_density_factor(temp_c, rel_humidity_pct,
+                                           AIR_P_SEA_PA * press_ratio);
+    return AIR_RHO_SEA * press_ratio * temp_ratio * humid;
 }
 
 double air_density_at_altitude_m(double alt_m) {
@@ -33,14 +60,22 @@ double air_density_at_altitude_m(double alt_m) {
 }
 
 double altitude_from_density(double density, double temp_c) {
-    double temp_ratio = (AIR_TEMP_REF_C + 273.15) / (temp_c + 273.15);
-    double press = density / (AIR_RHO_SEA * temp_ratio);   /* = (1−2.256e-5·h)^5.25588 */
-    if (press <= 0.0) return 4000.0;
-    double base = pow(press, 1.0 / 5.25588);
-    double h = (1.0 - base) / 2.25577e-5;
-    if (h < 0.0) h = 0.0;
-    if (h > 4000.0) h = 4000.0;
-    return h;
+    return altitude_from_density_humid(density, temp_c, 0.0);
+}
+double altitude_from_density_humid(double density, double temp_c, double rel_humidity_pct) {
+    /* air_density_humid() is monotonically decreasing in altitude (the humidity
+     * factor itself depends on pressure-at-altitude, so there's no closed-form
+     * inverse). Bisect over the supported 0..4000 m band — exact to machine
+     * precision, and reproduces the dry closed-form when rel_humidity_pct = 0. */
+    double lo = 0.0, hi = 4000.0;
+    if (density >= air_density_humid(lo, temp_c, rel_humidity_pct)) return 0.0;
+    if (density <= air_density_humid(hi, temp_c, rel_humidity_pct)) return 4000.0;
+    for (int i = 0; i < 60; i++) {
+        double mid = 0.5 * (lo + hi);
+        if (air_density_humid(mid, temp_c, rel_humidity_pct) > density) lo = mid;
+        else hi = mid;
+    }
+    return 0.5 * (lo + hi);
 }
 
 double ball_cor_temp_factor(double temp_c) {

@@ -123,6 +123,9 @@ typedef struct {
                                     * temperature in the UI. Less drag + Magnus. */
     double air_temp_c;             /* court temperature (°C); warms the ball →
                                     * livelier off the strings AND the court. */
+    double air_humidity_pct;       /* relative humidity (0..100); 0 = dry. Folded
+                                    * into air_density (muggy air is a touch
+                                    * thinner → marginally less drag + Magnus). */
 } ServeParams;
 
 typedef struct {

@@ -174,6 +174,34 @@ static void test_toss_solver(void) {
     }
 }
 
+static void test_humidity(void) {
+    printf("humidity in the air model:\n");
+    /* RH=0 is byte-identical to the dry two-arg function (neutrality), and the
+     * anchor still holds. */
+    double dry = air_density(0.0, 30.0);
+    CHECK(air_density_humid(0.0, 30.0, 0.0) == dry, "RH=0 must equal air_density()");
+    CHECK(fabs(air_density(0.0, AIR_TEMP_REF_C) - AIR_RHO_SEA) < 1e-9,
+          "anchor (0 m, ref temp, dry) == AIR_RHO_SEA");
+
+    /* Humid air is lighter, monotonically in RH; ~1.5% thinner saturated at 30C. */
+    double half = air_density_humid(0.0, 30.0, 50.0);
+    double sat  = air_density_humid(0.0, 30.0, 100.0);
+    printf("    30C sea level: dry=%.4f  50%%=%.4f  100%%=%.4f kg/m^3\n", dry, half, sat);
+    CHECK(sat < half && half < dry, "dry denser than 50%% denser than saturated");
+    double drop = (dry - sat) / dry * 100.0;
+    CHECK(drop > 0.5 && drop < 3.0, "saturated-30C density drop %.2f%% in (0.5, 3)", drop);
+
+    /* Tetens sanity: water boils (~1 atm vapor pressure) near 100C. */
+    double psat100 = saturation_vapor_pressure_pa(100.0);
+    CHECK(fabs(psat100 - 101325.0) / 101325.0 < 0.05, "Psat(100C) ~ 1 atm, got %.0f Pa", psat100);
+
+    /* altitude_from_density_humid inverts air_density_humid (UI round-trip). */
+    double rho = air_density_humid(1200.0, 25.0, 70.0);
+    double alt = altitude_from_density_humid(rho, 25.0, 70.0);
+    printf("    round-trip: 1200 m @25C/70%% -> %.4f kg/m^3 -> %.1f m\n", rho, alt);
+    CHECK(fabs(alt - 1200.0) < 1.0, "humid altitude round-trips, got %.1f m", alt);
+}
+
 int main(void) {
     printf("=== pepper math-core tests ===\n");
     test_strike_core();
@@ -183,6 +211,7 @@ int main(void) {
     test_mistime();
     test_swing_steers();
     test_toss_solver();
+    test_humidity();
     printf("=== %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

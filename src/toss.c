@@ -391,6 +391,7 @@ void serve_params_defaults(ServeParams *p, ShotMode mode) {
     p->winddirection = 0.0;
     p->air_density = AIR_RHO_SEA;   /* sea level; UI sets it from altitude + temp */
     p->air_temp_c  = AIR_TEMP_REF_C;
+    p->air_humidity_pct = 0.0;      /* dry by default → no change vs the old model */
 }
 
 ServeResult serve_simulate(const ServeParams *p) {

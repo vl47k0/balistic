@@ -138,6 +138,16 @@ void swing_params_set_mode_defaults(SwingParams *p, ShotMode mode);
  * AIR_RHO_SEA. Thinner air ↑altitude or ↑temperature → less drag + Magnus. */
 double air_density(double alt_m, double temp_c);
 
+/* Saturation vapor pressure of water (Pa) at temp_c (Tetens, over water). */
+double saturation_vapor_pressure_pa(double temp_c);
+
+/* Air density (kg/m^3) including humidity. rel_humidity_pct in [0, 100];
+ * 0 = dry air, identical to air_density(alt_m, temp_c). Humid air is *less*
+ * dense — light water vapor (M≈18) displaces heavier dry air (M≈29):
+ *   ρ = ρ_dry · (1 − 0.378·Pv/P),  Pv = RH·Psat(T),  P = ISA pressure at alt.
+ * So muggy heat thins the air a touch further → slightly less drag + Magnus. */
+double air_density_humid(double alt_m, double temp_c, double rel_humidity_pct);
+
 /* Back-compat: density at altitude at the reference temperature. */
 double air_density_at_altitude_m(double alt_m);
 
@@ -145,6 +155,11 @@ double air_density_at_altitude_m(double alt_m);
  * given density at the given temperature. Used to round-trip a loaded serve's
  * air_density back into the altitude control. */
 double altitude_from_density(double density, double temp_c);
+
+/* Inverse of air_density_humid(): the altitude that yields the given density at
+ * the given temperature + humidity. Divides out the humidity factor (at sea-
+ * level pressure — a <0.01% approximation) then inverts the dry model. */
+double altitude_from_density_humid(double density, double temp_c, double rel_humidity_pct);
 
 /* Ball "liveliness" vs temperature: a warm ball is springier (higher COR off
  * the strings AND the court), a cold ball is dead. Returns a multiplier on the
