@@ -17,6 +17,11 @@
 #define SPIN_KNEE_RADS  366.5   /* ~3500 rpm — below this, no change */
 #define SPIN_MAX_RADS   576.0   /* ~5500 rpm — soft asymptote */
 
+/* Runtime default for StrikeParams.spin_cap (see strike_params_defaults). The
+ * compile-time macro sets the initial value; rakija flips it off at startup. */
+static bool g_spin_cap_default = BALLISTIC_SPIN_CAP_DEFAULT;
+void ballistic_set_spin_cap_default(bool on) { g_spin_cap_default = on; }
+
 const char *string_material_str(StringMaterial m) {
     switch (m) {
         case STRING_POLY:   return "Polyester";
@@ -230,9 +235,10 @@ void strike_params_defaults(StrikeParams *sp, ShotMode mode) {
     sp->ball_type = BALL_ITF_TYPE2;
 
     /* Spin ceiling on by default (pepper's behaviour). A consumer that wants the
-     * legacy uncapped sliding-friction result (rakija parity) builds with
-     * -DBALLISTIC_SPIN_CAP_DEFAULT=false, or sets sp->spin_cap=false itself. */
-    sp->spin_cap = BALLISTIC_SPIN_CAP_DEFAULT;
+     * legacy uncapped sliding-friction result (rakija parity) calls
+     * ballistic_set_spin_cap_default(false) at startup, or sets sp->spin_cap
+     * per call. */
+    sp->spin_cap = g_spin_cap_default;
 
     kinetic_chain_defaults(&sp->kc, mode);
 

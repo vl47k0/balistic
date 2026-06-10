@@ -14,6 +14,37 @@
 #define T_MAX 10.0
 #define MAX_BOUNCES 4
 
+/* The sim box + the court-frame coordinates derived from it. Initialised to the
+ * compile-time defaults (constant expressions, so a valid static init), then
+ * recomputed by ballistic_set_sim_box(). The court is centred in the box. */
+double SIM_X_MAX = BALLISTIC_SIM_X_MAX;
+double SIM_Y_MAX = BALLISTIC_SIM_Y_MAX;
+double SIM_Z_MAX = BALLISTIC_SIM_Z_MAX;
+double COURT_X_LO     = (BALLISTIC_SIM_X_MAX - COURT_LEN) / 2.0;
+double COURT_X_HI     = (BALLISTIC_SIM_X_MAX - COURT_LEN) / 2.0 + COURT_LEN;
+double NET_X          =  BALLISTIC_SIM_X_MAX / 2.0;
+double SERVICE_X1     =  BALLISTIC_SIM_X_MAX / 2.0 - SERVICE_LINE_DEPTH;
+double SERVICE_X2     =  BALLISTIC_SIM_X_MAX / 2.0 + SERVICE_LINE_DEPTH;
+double COURT_Z_MID    =  BALLISTIC_SIM_Z_MAX / 2.0;
+double COURT_Z_DBL_LO =  BALLISTIC_SIM_Z_MAX / 2.0 - COURT_DBL_HW;
+double COURT_Z_DBL_HI =  BALLISTIC_SIM_Z_MAX / 2.0 + COURT_DBL_HW;
+double COURT_Z_W_LO   =  BALLISTIC_SIM_Z_MAX / 2.0 - COURT_HALF_W;
+double COURT_Z_W_HI   =  BALLISTIC_SIM_Z_MAX / 2.0 + COURT_HALF_W;
+
+void ballistic_set_sim_box(double x, double y, double z) {
+    SIM_X_MAX = x; SIM_Y_MAX = y; SIM_Z_MAX = z;
+    COURT_X_LO     = (x - COURT_LEN) / 2.0;
+    COURT_X_HI     = COURT_X_LO + COURT_LEN;
+    NET_X          = x / 2.0;
+    SERVICE_X1     = NET_X - SERVICE_LINE_DEPTH;
+    SERVICE_X2     = NET_X + SERVICE_LINE_DEPTH;
+    COURT_Z_MID    = z / 2.0;
+    COURT_Z_DBL_LO = COURT_Z_MID - COURT_DBL_HW;
+    COURT_Z_DBL_HI = COURT_Z_MID + COURT_DBL_HW;
+    COURT_Z_W_LO   = COURT_Z_MID - COURT_HALF_W;
+    COURT_Z_W_HI   = COURT_Z_MID + COURT_HALF_W;
+}
+
 static const double G = 9.81;
 static const double P = AIR_RHO_SEA; /* air density at sea level (kg/m^3) */
 

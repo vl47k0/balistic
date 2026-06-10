@@ -36,12 +36,16 @@
 #define NET_HEIGHT         0.914
 #define SERVICE_LINE_DEPTH 6.4008
 
-/* Sim-box extent. The court is centred in this footprint, so changing the box
- * shifts the whole court frame (NET_X, COURT_X_LO, … are derived below). Each
- * consumer overrides via -D to keep its own world offset:
- *   pepper  (serve-focused)  : 36 × 25 × 19  (the defaults here)
- *   rakija  (full rally box)  : -DBALLISTIC_SIM_X_MAX=50 -DBALLISTIC_SIM_Z_MAX=25
- * Court *dimensions* (COURT_LEN, NET_HEIGHT, …) are universal; only the margins
+/* Sim-box extent — a RUNTIME value now, not a compile-time constant. The court
+ * is centred in this footprint, so the box sets the world frame (NET_X,
+ * COURT_X_LO, … are derived from it). One prebuilt libballistic.a therefore
+ * serves every consumer; call ballistic_set_sim_box() once at startup if you
+ * need a non-default frame:
+ *   pepper / pene / moon : 36 × 25 × 19 (the default — no call needed)
+ *   rakija (full rally box): ballistic_set_sim_box(50, 25, 25)
+ * The macros below are only the DEFAULT the globals initialise to (still
+ * overridable at build time via -DBALLISTIC_SIM_X_MAX=… if ever wanted). Court
+ * *dimensions* (COURT_LEN, NET_HEIGHT, …) are universal; only the margins
  * around the court change with the box. */
 #ifndef BALLISTIC_SIM_X_MAX
 #define BALLISTIC_SIM_X_MAX  36.0
@@ -53,21 +57,18 @@
 #define BALLISTIC_SIM_Z_MAX  19.0
 #endif
 
-#define SIM_X_MAX  BALLISTIC_SIM_X_MAX
-#define SIM_Y_MAX  BALLISTIC_SIM_Y_MAX
-#define SIM_Z_MAX  BALLISTIC_SIM_Z_MAX
+/* The sim box + the court-frame coordinates derived from it. Read-only globals
+ * (defined in physics.c, initialised to the defaults above); change them via
+ * ballistic_set_sim_box(). Used as plain values throughout — no use site cares
+ * that they became variables. */
+extern double SIM_X_MAX, SIM_Y_MAX, SIM_Z_MAX;
+extern double COURT_X_LO, COURT_X_HI, NET_X, SERVICE_X1, SERVICE_X2;
+extern double COURT_Z_MID, COURT_Z_DBL_LO, COURT_Z_DBL_HI, COURT_Z_W_LO, COURT_Z_W_HI;
 
-/* Court positioning — centred in the sim footprint. */
-#define COURT_X_LO     ((SIM_X_MAX - COURT_LEN) / 2.0)    /* 6.1128  */
-#define COURT_X_HI     (COURT_X_LO + COURT_LEN)            /* 29.8872 */
-#define NET_X          (SIM_X_MAX / 2.0)                    /* 18.0    */
-#define SERVICE_X1     (NET_X - SERVICE_LINE_DEPTH)         /* 11.5992 */
-#define SERVICE_X2     (NET_X + SERVICE_LINE_DEPTH)         /* 24.4008 */
-#define COURT_Z_MID    (SIM_Z_MAX / 2.0)                    /* 9.5     */
-#define COURT_Z_DBL_LO (COURT_Z_MID - COURT_DBL_HW)        /* 4.0136  */
-#define COURT_Z_DBL_HI (COURT_Z_MID + COURT_DBL_HW)        /* 14.9864 */
-#define COURT_Z_W_LO   (COURT_Z_MID - COURT_HALF_W)        /* 5.3852  */
-#define COURT_Z_W_HI   (COURT_Z_MID + COURT_HALF_W)        /* 13.6148 */
+/* Set the sim-box extent (m) and recompute the derived court constants above.
+ * Call once at startup, before simulating, if the default 36×25×19 frame isn't
+ * what you want. Not thread-safe — set it before spawning worker threads. */
+void ballistic_set_sim_box(double x_max, double y_max, double z_max);
 
 typedef enum {
     MODE_GROUNDSTROKE = 0,

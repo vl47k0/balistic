@@ -5,11 +5,14 @@
 #include "physics.h"
 
 /* Default value strike_params_defaults() gives StrikeParams.spin_cap. On
- * (pepper) caps racket-imparted spin via a tanh ceiling; consumers wanting the
- * legacy uncapped result (rakija) build with -DBALLISTIC_SPIN_CAP_DEFAULT=false. */
+ * (pepper/pene/moon) caps racket-imparted spin via a tanh ceiling. It's a
+ * RUNTIME default now (so one prebuilt lib serves everyone): the macro sets the
+ * initial value, and ballistic_set_spin_cap_default() changes it at startup —
+ * rakija turns it off for its legacy uncapped result. */
 #ifndef BALLISTIC_SPIN_CAP_DEFAULT
 #define BALLISTIC_SPIN_CAP_DEFAULT true
 #endif
+void ballistic_set_spin_cap_default(bool on);
 
 typedef enum {
     STRING_POLY = 0,     /* polyester / co-poly — RPM Blast, Luxilon, etc. */
