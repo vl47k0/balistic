@@ -44,49 +44,48 @@ LDLIBS += ../balistic/build/libballistic.a -lm
 
 and `#include <ballistic/ballistic.h>` (or the individual headers).
 
-### Two portability seams
+### Two runtime config seams
 
-- **Sim-box / court offset.** The court is centred in a sim box; changing the
-  box shifts the whole world frame (`NET_X`, `COURT_X_LO`, …). Defaults are
-  pepper's serve-focused `36 × 25 × 19`. rakija's full rally box overrides at
-  compile time:
+Set these once at startup (before simulating / spawning worker threads) when the
+defaults don't fit. They're **runtime**, so the **one prebuilt `libballistic.a`
+serves every consumer** — no per-config build.
+
+- **Sim-box / court offset.** The court is centred in a sim box; changing it
+  shifts the whole world frame (`NET_X`, `COURT_X_LO`, … are extern globals
+  derived from it). Default is the serve box `36 × 25 × 19`; switch to a full
+  rally box with:
+  ```c
+  ballistic_set_sim_box(50.0, 25.0, 25.0);     /* rakija */
   ```
-  -DBALLISTIC_SIM_X_MAX=50 -DBALLISTIC_SIM_Z_MAX=25
-  ```
+  (`BALLISTIC_SIM_X_MAX` etc. still set the *default* the globals init to and are
+  `-D`-overridable, but no consumer needs that.)
 - **Spin-saturation ceiling.** `StrikeParams.spin_cap` soft-caps racket-imparted
-  spin (tanh, ~3500→5500 rpm). `strike_params_defaults()` sets it from
-  `BALLISTIC_SPIN_CAP_DEFAULT` (**on** by default — pepper's behaviour).
-  Consumers wanting the legacy uncapped sliding-friction result (rakija parity)
-  build with `-DBALLISTIC_SPIN_CAP_DEFAULT=false`, or set `sp.spin_cap = false`
-  per call.
-
-> **These seams are compile-time constants baked into the library's own object
-> code.** A consumer running the *default* config (pepper: box 36, cap on) links
-> the prebuilt `libballistic.a`. A consumer with a *different* config (rakija)
-> must **compile `src/physics.c` + `src/strike.c` with its own `-D` flags** — the
-> flags on the consumer's own TUs don't reach code already compiled into the
-> default `.a`. See `../rakija/Makefile` (`bal_physics.o` / `bal_strike.o`) for
-> the pattern. rakija pulls only physics + strike; `toss` is the serve core.
+  spin (tanh, ~3500→5500 rpm). `strike_params_defaults()` sets it from a runtime
+  default (**on**); for the legacy uncapped result:
+  ```c
+  ballistic_set_spin_cap_default(false);       /* rakija */
+  ```
+  (Per-call `sp.spin_cap` still overrides.)
 
 ## Status
 
-The extraction is complete — all three consumers migrated:
+Every consumer links the **one prebuilt `libballistic.a`**:
 - **balistic** stands alone, `make test` green (29/29, seeded from pepper + the
   air/humidity model).
-- **pepper** links the prebuilt lib (default config), deleted its copies.
-- **rakija** compiles `physics`+`strike` from source at its own config
-  (`-DBALLISTIC_SIM_X_MAX=50 -DBALLISTIC_SIM_Z_MAX=25
-  -DBALLISTIC_SPIN_CAP_DEFAULT=false`); its 50-assertion suite is byte-identical
-  to pre-migration (`body_rig` pose/IK stays rakija-local and links alongside).
-- **pene** (moon umbrella, Objective-C) matches the default box and now runs
-  balistic's **current** serve model end to end (it deleted its own older
-  `toss`), so it links the whole prebuilt `libballistic.a` — physics + strike +
-  toss — with the cap left on, no `-D` flags. Cross-repo via
-  `BALISTIC ?= ../../../luigi/projects/balistic`. Its Cocoa serve UI was ported
-  from pepper's `controls.c` (conditions, flat/slice/kick presets, the inverse
-  toss solver, auto-timing). The pure-C core test passes 14/14 against the lib;
-  the Cocoa GUI build needs macOS (no AppKit on the Linux dev box) — to be
-  confirmed there.
+- **pepper** links the lib (default config), deleted its copies.
+- **rakija** links the same lib and calls `ballistic_set_sim_box(50,25,25)` +
+  `ballistic_set_spin_cap_default(false)` at startup for its 50 m rally box +
+  uncapped spin (was a from-source `-D` build). Its 50-assertion suite is
+  byte-identical across both the extraction and the switch to the prebuilt lib
+  (`body_rig` pose/IK stays rakija-local and links alongside).
+- **pene** (sibling, Objective-C) runs balistic's **current** serve model end to
+  end (it deleted its own older `toss`), so it links the whole archive — physics
+  + strike + toss — defaults, no setup call. Its Cocoa serve UI was ported from
+  pepper's `controls.c` (conditions, flat/slice/kick presets, the inverse toss
+  solver, auto-timing). The pure-C core test passes against the lib; the Cocoa
+  GUI build needs macOS (no AppKit on the Linux dev box).
+- **moon** (sibling) is an nginx module that links the lib and serves the engine
+  over HTTP (JSON in → rendering JSON out); defaults, no setup call.
 
 Two correctness fixes landed here while migrating rakija, both pepper-neutral:
 `compute_strike` now copies `air_density` into its out-`SwingParams` (it was
