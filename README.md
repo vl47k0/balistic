@@ -18,7 +18,7 @@ consumers link the static lib and delete their local copies.
 |---|---|
 | `<ballistic/physics.h>` | RK4 flight integrator (quadratic drag + Magnus + altitude wind/air-density model), ground bounce (`apply_impact`), court geometry, ball/verdict model |
 | `<ballistic/strike.h>` | sliding-friction racket impact (`compute_strike`) + string-bed model |
-| `<ballistic/toss.h>` | serve as two time-parametrised tracks (toss + swing) that meet: contact solver, inverse toss solver, `serve_simulate` |
+| `<ballistic/toss.h>` | a swing meeting a ball track — `serve_simulate` covers **both** serves (the toss) and groundstrokes (an incoming ball), via the shared arm-sweep contact solver + the inverse toss solver |
 | `<ballistic/pose.h>` | **biomechanics** (the body half): skeleton, forward + inverse kinematics (`pose_fk` / `pose_from_joints`), 3-joint racket IK, swing sampling, named-shot presets |
 | `<ballistic/ballistic.h>` | umbrella include for all four |
 
@@ -71,8 +71,9 @@ serves every consumer** — no per-config build.
 ## Status
 
 Every consumer links the **one prebuilt `libballistic.a`**:
-- **balistic** stands alone, `make test` green (37/37 — the serve/strike/flight
-  suite seeded from pepper + the air/humidity model + the `pose` FK/IK group).
+- **balistic** stands alone, `make test` green (43/43 — the serve/strike/flight
+  suite seeded from pepper + the air/humidity model + a groundstroke (incoming
+  ball) shot + the `pose` FK/IK group).
 - **pepper** links the lib (default config), deleted its copies.
 - **rakija** links the same lib and calls `ballistic_set_sim_box(50,25,25)` +
   `ballistic_set_spin_cap_default(false)` at startup for its 50 m rally box +
