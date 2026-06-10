@@ -78,13 +78,15 @@ The extraction is complete — all three consumers migrated:
   (`-DBALLISTIC_SIM_X_MAX=50 -DBALLISTIC_SIM_Z_MAX=25
   -DBALLISTIC_SPIN_CAP_DEFAULT=false`); its 50-assertion suite is byte-identical
   to pre-migration (`body_rig` pose/IK stays rakija-local and links alongside).
-- **pene** (moon umbrella, Objective-C) matches the default box, so it links the
-  prebuilt `libballistic.a` like pepper and sets `sp.spin_cap=false` at runtime.
-  It keeps its own older `toss` model; the archive only pulls `physics.o`+
-  `strike.o` (no `serve_simulate` clash). Cross-repo via
-  `BALISTIC ?= ../../../luigi/projects/balistic`. The pure-C core test passes
-  14/14 against the lib; the Cocoa GUI build needs macOS (no AppKit on the Linux
-  dev box) — to be confirmed there.
+- **pene** (moon umbrella, Objective-C) matches the default box and now runs
+  balistic's **current** serve model end to end (it deleted its own older
+  `toss`), so it links the whole prebuilt `libballistic.a` — physics + strike +
+  toss — with the cap left on, no `-D` flags. Cross-repo via
+  `BALISTIC ?= ../../../luigi/projects/balistic`. Its Cocoa serve UI was ported
+  from pepper's `controls.c` (conditions, flat/slice/kick presets, the inverse
+  toss solver, auto-timing). The pure-C core test passes 14/14 against the lib;
+  the Cocoa GUI build needs macOS (no AppKit on the Linux dev box) — to be
+  confirmed there.
 
 Two correctness fixes landed here while migrating rakija, both pepper-neutral:
 `compute_strike` now copies `air_density` into its out-`SwingParams` (it was
@@ -93,6 +95,5 @@ omitted from the env-field copy alongside wind/cor/cof), and
 so callers that never set it get deterministic air.
 
 Follow-ups: fold each app's pure-physics asserts into `tests/test.c` as
-convenient; pene still runs the *pre-rewrite* serve model, so adopting balistic's
-current `toss` (arm-sweep release + inverse solver) would be a separate
-Cocoa-UI port, not a mechanical migration.
+convenient; build pene's Cocoa GUI on a Mac to confirm the AppKit layer (the
+engine side is verified here).
