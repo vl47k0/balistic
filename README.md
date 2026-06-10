@@ -1,9 +1,9 @@
 # balistic
 
-Portable tennis **ballistics** core — the shared C math engine extracted from
-rakija / pepper / pene. Pure **C11, `math.h` only**: no GTK, no glib, no
-json-glib, no UI. This is the one copy of the flight + strike + serve physics
-that every front-end links against.
+Portable tennis-physics core — the shared C math engine for rakija / pepper /
+pene / moon. Pure **C11, `math.h` only**: no GTK, no glib, no json-glib, no UI.
+Two halves: the **ball** (flight + strike + serve toss) and the **body**
+(skeleton + forward/inverse kinematics). One copy every front-end links against.
 
 ## Why
 
@@ -19,10 +19,11 @@ consumers link the static lib and delete their local copies.
 | `<ballistic/physics.h>` | RK4 flight integrator (quadratic drag + Magnus + altitude wind/air-density model), ground bounce (`apply_impact`), court geometry, ball/verdict model |
 | `<ballistic/strike.h>` | sliding-friction racket impact (`compute_strike`) + string-bed model |
 | `<ballistic/toss.h>` | serve as two time-parametrised tracks (toss + swing) that meet: contact solver, inverse toss solver, `serve_simulate` |
-| `<ballistic/ballistic.h>` | umbrella include for all three |
+| `<ballistic/pose.h>` | **biomechanics** (the body half): skeleton, forward + inverse kinematics (`pose_fk` / `pose_from_joints`), 3-joint racket IK, swing sampling, named-shot presets |
+| `<ballistic/ballistic.h>` | umbrella include for all four |
 
-JSON/UI adapters (rakija's `swing_api`, pepper's `serve_api`) are **not** here —
-they stay in the consuming app, which is what keeps this core toolkit-free.
+JSON/UI adapters (rakija's `swing_api` + `body_rig_json`, pepper's `serve_api`)
+are **not** here — they stay in the consuming app, which keeps this toolkit-free.
 
 ## Build
 
@@ -70,8 +71,8 @@ serves every consumer** — no per-config build.
 ## Status
 
 Every consumer links the **one prebuilt `libballistic.a`**:
-- **balistic** stands alone, `make test` green (29/29, seeded from pepper + the
-  air/humidity model).
+- **balistic** stands alone, `make test` green (37/37 — the serve/strike/flight
+  suite seeded from pepper + the air/humidity model + the `pose` FK/IK group).
 - **pepper** links the lib (default config), deleted its copies.
 - **rakija** links the same lib and calls `ballistic_set_sim_box(50,25,25)` +
   `ballistic_set_spin_cap_default(false)` at startup for its 50 m rally box +
