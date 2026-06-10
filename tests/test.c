@@ -153,6 +153,30 @@ static void test_swing_steers(void) {
     serve_result_free(&up);
 }
 
+/* Groundstroke: the same arm-sweep contact solver, fed an INCOMING ball instead
+ * of a toss, makes a chest-high topspin contact in front and lands the return
+ * deep + IN; mistiming the swing misses. */
+static void test_groundstroke(void) {
+    printf("groundstroke (incoming-ball track):\n");
+    ServeParams p; serve_params_defaults(&p, MODE_GROUNDSTROKE);
+    ServeResult r = serve_simulate(&p);
+    printf("    contact=%d at h=%.2f phi=%.1f  exit=%.1f m/s spin=%.0f rpm  verdict=%s land=(%.2f,%.2f)\n",
+           r.contact, r.contact_pos[1], r.phi_contact_deg, r.strike_out.exit_speed,
+           r.strike_out.exit_spin_rpm,
+           r.contact ? verdict_str(r.flight.verdict) : "-", r.flight.landing_x, r.flight.landing_z);
+    CHECK(r.contact, "default groundstroke makes contact with the incoming ball");
+    CHECK(r.contact_pos[1] > 0.8 && r.contact_pos[1] < 2.3, "contact is chest/waist height (%.2f m)", r.contact_pos[1]);
+    CHECK(r.contact && r.flight.verdict == VERDICT_IN, "groundstroke lands IN");
+    CHECK(r.strike_out.exit_spin_rpm > 500.0, "low-to-high brush produces topspin (%.0f rpm)", r.strike_out.exit_spin_rpm);
+    CHECK(r.flight.landing_x > NET_X, "the return clears into the opponent's court");
+    serve_result_free(&r);
+
+    ServeParams late = p; late.apex_time_s += 0.30;
+    ServeResult rl = serve_simulate(&late);
+    CHECK(!rl.contact || rl.flight.verdict != VERDICT_IN, "a 0.30 s mistimed groundstroke doesn't land a clean IN");
+    serve_result_free(&rl);
+}
+
 /* The inverse toss solver hits the requested landing + apex + side. */
 static void test_toss_solver(void) {
     printf("toss solver hits its target:\n");
@@ -292,6 +316,7 @@ int main(void) {
     test_mistime();
     test_swing_steers();
     test_toss_solver();
+    test_groundstroke();
     test_humidity();
     test_pose();
     printf("=== %d passed, %d failed ===\n", g_pass, g_fail);

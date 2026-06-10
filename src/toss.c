@@ -50,6 +50,12 @@
  * the separate swing-through t0d), independent of this tilt. */
 #define REACH_TILT_DEG 28.0
 
+/* Groundstroke contact-reference time (s): the incoming ball is anchored to pass
+ * through the swing apex at this moment, and the swing is auto-timed to be there
+ * then — so a stock groundstroke contacts cleanly at full extension, and a
+ * timing offset mistimes it (same as a serve's toss∩arc timing). */
+#define GS_T_REF       0.30
+
 static inline double dot3(const double a[3], const double b[3]) {
     return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
 }
@@ -266,6 +272,10 @@ static double toss_crossing_time(const ServeParams *p) {
 }
 
 double serve_seed_apex_time(const ServeParams *p) {
+    /* Groundstroke: the incoming ball is anchored at the swing apex at GS_T_REF,
+     * so the racket should reach full extension (φ=0) then. Serve: time it to the
+     * toss∩arc crossing. */
+    if (p->mode == MODE_GROUNDSTROKE) return GS_T_REF;
     return toss_crossing_time(p);
 }
 
@@ -340,50 +350,64 @@ void serve_params_defaults(ServeParams *p, ShotMode mode) {
     memset(p, 0, sizeof *p);
     strike_params_defaults(&p->strike, mode);
 
-    const bool ad = (mode == MODE_SERVE_AD);
     p->mode = mode;
     p->right_handed = true;
-    p->shoulder_to_net_deg = 60.0;
 
-    /* Stance: just behind own baseline, ~3/4 of a metre off the centre
-     * mark. Ad server stands toward -z, deuce toward +z. */
-    p->player_x = COURT_X_LO - 0.3;
-    p->player_z = ad ? COURT_Z_MID + 0.75 : COURT_Z_MID - 0.75;
-    p->release_height_m = 1.55;
-
-    /* Toss: the straight tossing arm sweeps up in the toss plane; the ball is
-     * let go at release_angle_deg. ~135° (hand up-and-forward) places a 1st-serve
-     * toss out in front of the baseline; a later release (toward 180°) sends it
-     * behind the baseline for a kick. toss_plane sets the plane (per box). */
-    p->toss_speed_mps   = 5.75;
-    p->release_angle_deg = 102.0;  /* fairly early release → toss out in front (flat) */
-    p->toss_fwd_deg     = 0.0;     /* legacy */
-    p->toss_side_deg    = 0.0;
-    p->toss_plane_deg   = ad ? 50.0 : 90.0;
-
-    /* Arm length (configurable). Swing radius (RS → string) = arm + 27" racket
-     * ≈ 1.34 m; the contact POINT and HEIGHT are outputs — where the sweeping
-     * racket circle meets the falling toss. */
-    p->arm_length_m     = 0.65;
+    /* Shared body geometry. Swing radius (RS → string) = arm + 27" racket. */
+    p->arm_length_m      = 0.65;
     p->shoulder_height_m = SHOULDER_H;     /* adult default; lower for a junior */
     p->racket_len_m      = RACKET_LEN_M;   /* 27" adult; ~0.635 m for a 25" junior */
-    p->reach_tilt_deg   = REACH_TILT_DEG;   /* contact out front (flat) by default */
-    p->swing_radius_m   = 0.0;     /* legacy, unused */
-    p->contact_height_m = 2.55;    /* legacy field, unused by the arc∩toss solver */
-    p->swing_speed_mps  = 38.0;
-    p->swing_start_speed_mps = 22.0;   /* speed entering the tracked loop (SS) */
-    /* Swing-through (exit) direction: ~horizontal at full extension and angled
-     * toward the box (azimuth from swing_plane_deg). With a clean φ≈0 contact
-     * the serve leaves flat from ~2.6 m and lands in. */
-    p->plane_elev_deg  = -2.0;
-    p->contact_angle_deg = -7.0; /* face brush → mild topspin */
-    p->plane_az_deg    = 0.0;    /* fine azimuth offset on top of swing_plane_deg */
-    p->swing_plane_deg = 80.0;   /* near-perpendicular → into the service box */
+    p->swing_radius_m    = 0.0;            /* legacy, unused */
+    p->toss_fwd_deg      = 0.0;            /* legacy */
+    p->toss_side_deg     = 0.0;
 
-    /* Time the swing so full extension (φ = 0) lands just as the toss reaches
-     * the apex point — matching serve_simulate's contact, so the stock serve
-     * is well-timed (a ±0.3 s offset mistimes it). */
-    p->apex_time_s = toss_crossing_time(p);
+    if (mode == MODE_GROUNDSTROKE) {
+        /* A topspin rally ball. The incoming shot (in_speed/elev/spin from the
+         * strike defaults) flies at the player; the swing reaches FORWARD (high
+         * reach_tilt → chest-high contact in front, not overhead) and brushes
+         * low-to-high. Contact is the arc∩incoming-ball crossing, auto-timed to
+         * GS_T_REF. */
+        p->shoulder_to_net_deg = 35.0;     /* fairly open / square stance */
+        p->player_x = COURT_X_LO - 1.0;    /* a step behind own baseline */
+        p->player_z = COURT_Z_MID;
+        p->release_height_m = 1.0;
+        p->toss_speed_mps   = 0.0;         /* no toss */
+        p->release_angle_deg = 90.0;
+        p->toss_plane_deg   = 90.0;
+        p->reach_tilt_deg   = 72.0;        /* reach forward → contact out front */
+        p->contact_height_m = 1.1;         /* legacy, unused by the solver */
+        p->swing_speed_mps  = 31.0;        /* groundstroke head speed */
+        p->swing_start_speed_mps = 16.0;
+        p->plane_elev_deg   = 14.0;        /* swing low-to-high (topspin) */
+        p->contact_angle_deg = -9.0;       /* brush up the back → topspin */
+        p->plane_az_deg     = 0.0;
+        p->swing_plane_deg  = 90.0;        /* drive straight ahead, down the middle */
+    } else {
+        const bool ad = (mode == MODE_SERVE_AD);
+        p->shoulder_to_net_deg = 60.0;
+        /* Stance: just behind own baseline, ~3/4 m off the centre mark. */
+        p->player_x = COURT_X_LO - 0.3;
+        p->player_z = ad ? COURT_Z_MID + 0.75 : COURT_Z_MID - 0.75;
+        p->release_height_m = 1.55;
+        /* Toss: the tossing arm sweeps up; release_angle places it (early ≈ out
+         * front for a flat 1st serve, later ≈ behind the baseline for a kick). */
+        p->toss_speed_mps   = 5.75;
+        p->release_angle_deg = 102.0;
+        p->toss_plane_deg   = ad ? 50.0 : 90.0;
+        p->reach_tilt_deg   = REACH_TILT_DEG;   /* contact up-and-out front */
+        p->contact_height_m = 2.55;             /* legacy, unused */
+        p->swing_speed_mps  = 38.0;
+        p->swing_start_speed_mps = 22.0;
+        p->plane_elev_deg  = -2.0;              /* flat swing-through into the box */
+        p->contact_angle_deg = -7.0;            /* mild topspin */
+        p->plane_az_deg    = 0.0;
+        p->swing_plane_deg = 80.0;
+    }
+
+    /* Time the swing so full extension (φ = 0) lands when the ball is at the
+     * apex point (toss∩arc for a serve; the GS_T_REF anchor for a groundstroke),
+     * so the stock shot is well-timed and a ±0.3 s offset mistimes it. */
+    p->apex_time_s = serve_seed_apex_time(p);
 
     p->cor_ground = 0.73;   /* hard court-ish; UI overrides */
     p->cof_ground = 0.60;
@@ -394,6 +418,47 @@ void serve_params_defaults(ServeParams *p, ShotMode mode) {
     p->air_humidity_pct = 0.0;      /* dry by default → no change vs the old model */
 }
 
+/* Build the incoming-ball track for a groundstroke: a projectile (gravity +
+ * drag) that passes through the swing apex A at GS_T_REF, heading toward the
+ * player with the configured incoming speed/elevation/azimuth. Fills the
+ * position + velocity arrays over [0, TOSS_T_MAX] (RK4 is reversible to its
+ * order, so we integrate forward from A and backward to t=0). Returns the sample
+ * count. The arc∩track march then finds the contact (≈ A at GS_T_REF for a
+ * well-timed swing; off it for a mistimed one). */
+static size_t build_incoming_track(const ServeParams *p, double kd,
+                                   const double A[3],
+                                   double *bx, double *by, double *bz,
+                                   double *vx, double *vy, double *vz,
+                                   size_t cap) {
+    double spd = p->strike.in_speed;
+    double el  = p->strike.in_elevation_deg * M_PI / 180.0;
+    double az  = p->strike.in_azimuth_deg   * M_PI / 180.0;
+    /* World velocity heading at the player (−x), so the strike's
+     * az = atan2(−vz, −vx) / elev = asin(vy/|v|) recover the inputs. */
+    double vin[3] = {
+        -spd * cos(el) * cos(az),
+         spd * sin(el),
+        -spd * cos(el) * sin(az),
+    };
+
+    int apex = (int)(GS_T_REF / TOSS_DT + 0.5);
+    if (apex < 0) apex = 0;
+    if (apex >= (int)cap) apex = (int)cap - 1;
+
+    double s[6] = { A[0], A[1], A[2], vin[0], vin[1], vin[2] };
+    for (int i = apex; i < (int)cap; i++) {   /* forward from the apex */
+        bx[i]=s[0]; by[i]=s[1]; bz[i]=s[2]; vx[i]=s[3]; vy[i]=s[4]; vz[i]=s[5];
+        toss_rk4(s, TOSS_DT, kd);
+    }
+    s[0]=A[0]; s[1]=A[1]; s[2]=A[2]; s[3]=vin[0]; s[4]=vin[1]; s[5]=vin[2];
+    toss_rk4(s, -TOSS_DT, kd);
+    for (int i = apex - 1; i >= 0; i--) {      /* backward to t = 0 */
+        bx[i]=s[0]; by[i]=s[1]; bz[i]=s[2]; vx[i]=s[3]; vy[i]=s[4]; vz[i]=s[5];
+        toss_rk4(s, -TOSS_DT, kd);
+    }
+    return cap;
+}
+
 ServeResult serve_simulate(const ServeParams *p) {
     ServeResult r;
     memset(&r, 0, sizeof r);
@@ -402,12 +467,27 @@ ServeResult serve_simulate(const ServeParams *p) {
     BallProps bp = ball_props_for_type(p->strike.ball_type);
     double kd = -bp.cd * (p->air_density > 0.0 ? p->air_density : AIR_RHO) * bp.area_m2 / (2.0 * bp.mass_kg);
 
-    /* ---- Toss release state (off-hand side, lofts across to contact) ---- */
-    double s[6];
-    toss_release_state(p, s);
-    r.toss_az_deg = (fabs(s[3]) + fabs(s[5]) > 1e-6)
-                  ? atan2(s[5], s[3]) * 180.0/M_PI : 0.0;
+    /* ---- Swing geometry — arc pivots at RS in the swing plane. Computed first
+     * because the groundstroke ball track is anchored at the swing apex.
+     * head(φ) = RS + R·(cosφ·a_hat + sinφ·e2); full extension (apex = RS +
+     * R·a_hat) is at φ = 0. The CONTACT is the arc∩ball-track crossing found
+     * below; the strike is driven separately by t0d so the exit is decoupled. */
+    double pivot[3], a_hat[3], e2[3], t0d[3];
+    swing_basis(p, pivot, a_hat, e2, t0d);
+    double swing_radius = p->arm_length_m + p->racket_len_m;
+    if (swing_radius < 0.3) swing_radius = 0.3;
+    double omega = (p->swing_speed_mps > 1e-3)
+                 ? p->swing_speed_mps / swing_radius : 1e-3;
+    r.swing_az_deg = atan2(t0d[2], t0d[0]) * 180.0/M_PI;
+    r.swing_pivot[0] = pivot[0]; r.swing_pivot[1] = pivot[1]; r.swing_pivot[2] = pivot[2];
+    for (int k = 0; k < 3; k++) { r.swing_u[k] = a_hat[k]; r.swing_v[k] = e2[k]; }
+    double apexpt[3] = {                       /* full-extension contact point */
+        pivot[0] + swing_radius * a_hat[0],
+        pivot[1] + swing_radius * a_hat[1],
+        pivot[2] + swing_radius * a_hat[2],
+    };
 
+    /* ---- Ball track: the toss (serve) or the incoming ball (groundstroke) ---- */
     size_t cap = (size_t)(TOSS_T_MAX / TOSS_DT) + 4;
     r.toss_x = malloc(cap * sizeof(double));
     r.toss_y = malloc(cap * sizeof(double));
@@ -415,43 +495,35 @@ ServeResult serve_simulate(const ServeParams *p) {
     double *vx = malloc(cap * sizeof(double));
     double *vy = malloc(cap * sizeof(double));
     double *vz = malloc(cap * sizeof(double));
-
-    /* ---- Integrate the toss ---- */
-    double t = 0.0;
     size_t n = 0;
-    while (t < TOSS_T_MAX && n < cap) {
-        r.toss_x[n] = s[0]; r.toss_y[n] = s[1]; r.toss_z[n] = s[2];
-        vx[n] = s[3]; vy[n] = s[4]; vz[n] = s[5];
-        n++;
-        if (s[1] < 0.0 && n > 1) break;   /* ball hit the ground */
-        toss_rk4(s, TOSS_DT, kd);
-        t += TOSS_DT;
+
+    toss_shoulder_ls(p, r.ls_pos);
+
+    if (p->mode == MODE_GROUNDSTROKE) {
+        /* The incoming ball flies at the player (−x-ish), anchored to pass
+         * through the swing apex at GS_T_REF; the swing is auto-timed there. */
+        n = build_incoming_track(p, kd, apexpt,
+                                 r.toss_x, r.toss_y, r.toss_z, vx, vy, vz, cap);
+        r.toss_az_deg = p->strike.in_azimuth_deg;
+        for (int k = 0; k < 3; k++) r.toss_apex[k] = apexpt[k];
+        r.toss_te[0] = r.toss_x[n-1]; r.toss_te[1] = r.toss_y[n-1]; r.toss_te[2] = r.toss_z[n-1];
+    } else {
+        double s[6];
+        toss_release_state(p, s);
+        r.toss_az_deg = (fabs(s[3]) + fabs(s[5]) > 1e-6)
+                      ? atan2(s[5], s[3]) * 180.0/M_PI : 0.0;
+        double t = 0.0;
+        while (t < TOSS_T_MAX && n < cap) {
+            r.toss_x[n] = s[0]; r.toss_y[n] = s[1]; r.toss_z[n] = s[2];
+            vx[n] = s[3]; vy[n] = s[4]; vz[n] = s[5];
+            n++;
+            if (s[1] < 0.0 && n > 1) break;   /* ball hit the ground */
+            toss_rk4(s, TOSS_DT, kd);
+            t += TOSS_DT;
+        }
+        toss_outcome(p, r.toss_apex, r.toss_te);
     }
     r.toss_n = n;
-
-    /* Toss placement metadata: release shoulder LS, apex, and ground endpoint. */
-    toss_shoulder_ls(p, r.ls_pos);
-    toss_outcome(p, r.toss_apex, r.toss_te);
-
-    /* ---- Swing geometry — arc pivots at RS, in the swing plane ----
-     * The arc is a circle of radius (arm + racket) about RS, lying in the
-     * vertical swing plane (azimuth swing_plane_deg). a_hat = reach (up tilted
-     * forward toward the box), e2 = in-plane tangent ⟂ a_hat; head(φ) = RS +
-     * R·(cosφ·a_hat + sinφ·e2) reaches full extension (apex = RS + R·a_hat) at
-     * φ = 0, which sits up-and-forward over the ball, so a well-timed swing
-     * contacts there. The CONTACT is found by the arc∩toss march below; the
-     * strike is driven separately by the swing-through t0d (flat, toward the
-     * box) so the exit is decoupled from the arc. */
-    double pivot[3], a_hat[3], e2[3], t0d[3];
-    swing_basis(p, pivot, a_hat, e2, t0d);
-    double swing_radius = p->arm_length_m + p->racket_len_m;
-    if (swing_radius < 0.3) swing_radius = 0.3;
-    r.swing_az_deg = atan2(t0d[2], t0d[0]) * 180.0/M_PI;
-
-    double omega = (p->swing_speed_mps > 1e-3)
-                 ? p->swing_speed_mps / swing_radius : 1e-3;
-    r.swing_pivot[0] = pivot[0]; r.swing_pivot[1] = pivot[1]; r.swing_pivot[2] = pivot[2];
-    for (int k = 0; k < 3; k++) { r.swing_u[k] = a_hat[k]; r.swing_v[k] = e2[k]; }
 
     /* ---- Racket arc samples across the whole window (for rendering) ---- */
     const size_t RKT_SAMPLES = 64;
@@ -553,8 +625,12 @@ ServeResult serve_simulate(const ServeParams *p) {
     } else {
         sp.in_speed = 0.0; sp.in_elevation_deg = -90.0; sp.in_azimuth_deg = 0.0;
     }
-    sp.in_spin_rpm = 0.0;
-    sp.in_sidespin_rpm = 0.0;
+    /* A serve strikes a (nearly) spinless toss; a groundstroke keeps the
+     * incoming ball's spin (already copied into sp from p->strike). */
+    if (p->mode != MODE_GROUNDSTROKE) {
+        sp.in_spin_rpm = 0.0;
+        sp.in_sidespin_rpm = 0.0;
+    }
 
     /* Racket head velocity drives the ball along the swing-through direction
      * t0d (a flat hit). The RS-anchored arc is the visual swing; the strike
