@@ -4,6 +4,13 @@
 #include <stdbool.h>
 #include "physics.h"
 
+/* Default value strike_params_defaults() gives StrikeParams.spin_cap. On
+ * (pepper) caps racket-imparted spin via a tanh ceiling; consumers wanting the
+ * legacy uncapped result (rakija) build with -DBALLISTIC_SPIN_CAP_DEFAULT=false. */
+#ifndef BALLISTIC_SPIN_CAP_DEFAULT
+#define BALLISTIC_SPIN_CAP_DEFAULT true
+#endif
+
 typedef enum {
     STRING_POLY = 0,     /* polyester / co-poly — RPM Blast, Luxilon, etc. */
     STRING_NYLON,        /* nylon / multifilament — softer, less spin */

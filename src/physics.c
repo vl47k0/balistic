@@ -112,6 +112,9 @@ BallProps ball_props_for_type(BallType t) {
 
 void swing_params_set_mode_defaults(SwingParams *p, ShotMode mode) {
     p->mode = mode;
+    p->air_density = 0.0;   /* 0 = sea-level default (P); consumers at altitude
+                             * override after this. Initialised here so callers
+                             * that don't set it (rakija) get deterministic air. */
     /* Player's baseline sits at x = COURT_X_LO; groundstroke contact
      * ~2.65 m behind it, serve contact ~0.5 m forward of it. The
      * z axis is centred on COURT_Z_MID; ±1.5 m off centre marks the

@@ -54,16 +54,35 @@ and `#include <ballistic/ballistic.h>` (or the individual headers).
   -DBALLISTIC_SIM_X_MAX=50 -DBALLISTIC_SIM_Z_MAX=25
   ```
 - **Spin-saturation ceiling.** `StrikeParams.spin_cap` soft-caps racket-imparted
-  spin (tanh, ~3500→5500 rpm). `strike_params_defaults()` sets it **on**
-  (pepper's behaviour). Consumers wanting the legacy uncapped sliding-friction
-  result (rakija parity) set `sp.spin_cap = false` after calling defaults.
+  spin (tanh, ~3500→5500 rpm). `strike_params_defaults()` sets it from
+  `BALLISTIC_SPIN_CAP_DEFAULT` (**on** by default — pepper's behaviour).
+  Consumers wanting the legacy uncapped sliding-friction result (rakija parity)
+  build with `-DBALLISTIC_SPIN_CAP_DEFAULT=false`, or set `sp.spin_cap = false`
+  per call.
+
+> **These seams are compile-time constants baked into the library's own object
+> code.** A consumer running the *default* config (pepper: box 36, cap on) links
+> the prebuilt `libballistic.a`. A consumer with a *different* config (rakija)
+> must **compile `src/physics.c` + `src/strike.c` with its own `-D` flags** — the
+> flags on the consumer's own TUs don't reach code already compiled into the
+> default `.a`. See `../rakija/Makefile` (`bal_physics.o` / `bal_strike.o`) for
+> the pattern. rakija pulls only physics + strike; `toss` is the serve core.
 
 ## Status
 
-Step 1 of the extraction: library stands alone and `make test` is green (23/23,
-seeded from pepper's suite — the newest baseline). Consumers not yet migrated.
+Steps 1–3 of the extraction are done:
+- **balistic** stands alone, `make test` green (23/23, seeded from pepper).
+- **pepper** links the prebuilt lib (default config), deleted its copies.
+- **rakija** compiles `physics`+`strike` from source at its own config
+  (`-DBALLISTIC_SIM_X_MAX=50 -DBALLISTIC_SIM_Z_MAX=25
+  -DBALLISTIC_SPIN_CAP_DEFAULT=false`); its 50-assertion suite is byte-identical
+  to pre-migration (`body_rig` pose/IK stays rakija-local and links alongside).
 
-Next: ① migrate **pepper** to link the lib (delete its copies), ② **rakija**
-(`spin_cap=false`, `-DBALLISTIC_SIM_X_MAX=50`, gate on its 40-assertion suite),
-③ **pene** (moon repo, Objective-C — calls the C lib directly), folding each
+Two correctness fixes landed here while migrating rakija, both pepper-neutral:
+`compute_strike` now copies `air_density` into its out-`SwingParams` (it was
+omitted from the env-field copy alongside wind/cor/cof), and
+`swing_params_set_mode_defaults` initialises `air_density` to its `0` sentinel
+so callers that never set it get deterministic air.
+
+Next: ④ **pene** (moon repo, Objective-C — calls the C lib directly). Fold each
 app's pure-physics asserts into `tests/test.c` as they move.

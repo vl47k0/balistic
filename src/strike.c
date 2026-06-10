@@ -229,9 +229,10 @@ void strike_params_defaults(StrikeParams *sp, ShotMode mode) {
 
     sp->ball_type = BALL_ITF_TYPE2;
 
-    /* Spin ceiling on by default (pepper's behaviour). rakija sets this false
-     * after defaults to keep its legacy uncapped fixtures. */
-    sp->spin_cap = true;
+    /* Spin ceiling on by default (pepper's behaviour). A consumer that wants the
+     * legacy uncapped sliding-friction result (rakija parity) builds with
+     * -DBALLISTIC_SPIN_CAP_DEFAULT=false, or sets sp->spin_cap=false itself. */
+    sp->spin_cap = BALLISTIC_SPIN_CAP_DEFAULT;
 
     kinetic_chain_defaults(&sp->kc, mode);
 
@@ -667,6 +668,7 @@ StrikeOutput compute_strike(const StrikeParams *sp,
     out_swing->winddirection = conditions->winddirection;
     out_swing->cor           = conditions->cor;
     out_swing->cof           = conditions->cof;
+    out_swing->air_density   = conditions->air_density;
     out_swing->ball_type     = sp->ball_type;
 
     StrikeOutput out = {
