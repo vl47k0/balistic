@@ -70,13 +70,21 @@ and `#include <ballistic/ballistic.h>` (or the individual headers).
 
 ## Status
 
-Steps 1–3 of the extraction are done:
-- **balistic** stands alone, `make test` green (23/23, seeded from pepper).
+The extraction is complete — all three consumers migrated:
+- **balistic** stands alone, `make test` green (29/29, seeded from pepper + the
+  air/humidity model).
 - **pepper** links the prebuilt lib (default config), deleted its copies.
 - **rakija** compiles `physics`+`strike` from source at its own config
   (`-DBALLISTIC_SIM_X_MAX=50 -DBALLISTIC_SIM_Z_MAX=25
   -DBALLISTIC_SPIN_CAP_DEFAULT=false`); its 50-assertion suite is byte-identical
   to pre-migration (`body_rig` pose/IK stays rakija-local and links alongside).
+- **pene** (moon umbrella, Objective-C) matches the default box, so it links the
+  prebuilt `libballistic.a` like pepper and sets `sp.spin_cap=false` at runtime.
+  It keeps its own older `toss` model; the archive only pulls `physics.o`+
+  `strike.o` (no `serve_simulate` clash). Cross-repo via
+  `BALISTIC ?= ../../../luigi/projects/balistic`. The pure-C core test passes
+  14/14 against the lib; the Cocoa GUI build needs macOS (no AppKit on the Linux
+  dev box) — to be confirmed there.
 
 Two correctness fixes landed here while migrating rakija, both pepper-neutral:
 `compute_strike` now copies `air_density` into its out-`SwingParams` (it was
@@ -84,5 +92,7 @@ omitted from the env-field copy alongside wind/cor/cof), and
 `swing_params_set_mode_defaults` initialises `air_density` to its `0` sentinel
 so callers that never set it get deterministic air.
 
-Next: ④ **pene** (moon repo, Objective-C — calls the C lib directly). Fold each
-app's pure-physics asserts into `tests/test.c` as they move.
+Follow-ups: fold each app's pure-physics asserts into `tests/test.c` as
+convenient; pene still runs the *pre-rewrite* serve model, so adopting balistic's
+current `toss` (arm-sweep release + inverse solver) would be a separate
+Cocoa-UI port, not a mechanical migration.
