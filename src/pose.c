@@ -701,6 +701,24 @@ double pose_rig_racket_tip_velocity(const PoseJoints *joints,
     return sqrt(out_v[0]*out_v[0] + out_v[1]*out_v[1] + out_v[2]*out_v[2]);
 }
 
+/* ===== Pose-driven swing ===== */
+
+void pose_drive_swing(const PoseRig *rig, double *out_swing_speed_mps,
+                      double *out_plane_elev_deg) {
+    enum { N = 12 };
+    PoseJoints js[N];
+    pose_rig_sample_trajectory(rig, N, js);
+    double v[3];
+    double speed = pose_rig_racket_tip_velocity(js, N, rig->swing_duration_s, v);
+    if (out_swing_speed_mps) *out_swing_speed_mps = speed;
+    if (out_plane_elev_deg) {
+        double horiz = sqrt(v[0]*v[0] + v[2]*v[2]);
+        *out_plane_elev_deg = (speed > 1e-6)
+            ? atan2(v[1], horiz) * 180.0 / M_PI   /* + = racket rising (low-to-high) */
+            : 0.0;
+    }
+}
+
 /* ===== Racket-tip IK ===== */
 
 void pose_rig_ik_racket(const PoseRig *rig, Pose *p,

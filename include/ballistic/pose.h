@@ -222,6 +222,20 @@ double pose_rig_racket_tip_velocity(const PoseJoints *joints,
                                     int n_samples, double duration_s,
                                     double out_v[3]);
 
+/* Pose-driven swing: turn a body pose-pair (prep → contact over
+ * rig->swing_duration_s) into the swing knobs the serve/groundstroke pipeline
+ * consumes, so the swing's pace + topspin come from how the body uncoils rather
+ * than from raw sliders. Samples the prep→contact trajectory, reads the racket
+ * tip's velocity at contact, and writes:
+ *   *out_swing_speed_mps — the tip speed (faster / shorter-duration uncoil →
+ *                          more pace),
+ *   *out_plane_elev_deg  — the tip-velocity elevation (a low-to-high path → a
+ *                          positive angle → topspin in the strike model).
+ * Either out pointer may be NULL. A caller writes these into a ServeParams
+ * (swing_speed_mps + plane_elev_deg) before serve_simulate — no engine change. */
+void pose_drive_swing(const PoseRig *rig, double *out_swing_speed_mps,
+                      double *out_plane_elev_deg);
+
 /* Inverse FK — back-solve a Pose from world-frame joint positions.
  * Each chain solves analytically:
  *

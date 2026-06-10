@@ -307,6 +307,45 @@ static void test_pose(void) {
     CHECK(comerr < 1e-9, "CoM round-trips exactly");
 }
 
+/* Pose-driven swing: the body's uncoil (a prep→contact pose pair) sets the
+ * swing's pace, and feeds the serve/groundstroke pipeline — a faster uncoil
+ * makes a faster shot, with no raw swing-speed slider. */
+static void test_pose_drive(void) {
+    printf("pose-driven swing:\n");
+    PoseRig rig;
+    pose_default_prep_forehand(&rig.prep);
+    pose_default_contact_forehand(&rig.contact);
+    skeleton_from_height(&rig.skel, 1.86);
+    rig.scrub = 1.0; rig.swing_duration_s = 0.12;
+
+    double sp1, el1;
+    pose_drive_swing(&rig, &sp1, &el1);
+    printf("    forehand @0.12s: swing_speed=%.1f m/s  brush-elev=%.1f deg\n", sp1, el1);
+    CHECK(sp1 > 8.0 && sp1 < 45.0, "pose yields a plausible swing speed (%.1f m/s)", sp1);
+    CHECK(el1 > 0.0, "a forehand's racket rises low-to-high (elev %.1f deg)", el1);
+
+    PoseRig fast = rig; fast.swing_duration_s = 0.07;
+    double sp2, el2; pose_drive_swing(&fast, &sp2, &el2);
+    (void)el2;
+    printf("    forehand @0.07s: swing_speed=%.1f m/s\n", sp2);
+    CHECK(sp2 > sp1 * 1.4, "a faster uncoil drives a faster swing (%.1f -> %.1f)", sp1, sp2);
+
+    /* Drive a groundstroke off the pose speed (no raw slider): faster pose →
+     * faster shot. */
+    ServeParams pa; serve_params_defaults(&pa, MODE_GROUNDSTROKE);
+    pa.swing_speed_mps = sp1;
+    ServeResult ra = serve_simulate(&pa);
+    ServeParams pb = pa; pb.swing_speed_mps = sp2;
+    ServeResult rb = serve_simulate(&pb);
+    printf("    groundstroke exit: slow-pose=%.1f m/s  fast-pose=%.1f m/s\n",
+           ra.strike_out.exit_speed, rb.strike_out.exit_speed);
+    CHECK(ra.contact && rb.contact, "both pose-driven groundstrokes make contact");
+    CHECK(rb.strike_out.exit_speed > ra.strike_out.exit_speed + 1.0,
+          "a faster body uncoil produces a faster shot (%.1f -> %.1f m/s)",
+          ra.strike_out.exit_speed, rb.strike_out.exit_speed);
+    serve_result_free(&ra); serve_result_free(&rb);
+}
+
 int main(void) {
     printf("=== pepper math-core tests ===\n");
     test_strike_core();
@@ -319,6 +358,7 @@ int main(void) {
     test_groundstroke();
     test_humidity();
     test_pose();
+    test_pose_drive();
     printf("=== %d passed, %d failed ===\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
