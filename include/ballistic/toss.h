@@ -60,6 +60,12 @@ typedef struct {
                                     * 0 = parallel to the net, 90 = perpendicular
                                     * (straight down the court). Sets the vertical
                                     * plane the tossing arm sweeps in. */
+    /* Toss spin (rpm). A clean controlled toss is ~0, but a high, angled toss
+     * imparts spin that curves it via Magnus (same axis convention as flight:
+     * +topspin / +sidespin). The serve's ball track carries these; for a
+     * groundstroke the incoming ball's spin is strike.in_spin_rpm instead. */
+    double toss_spin_rpm;
+    double toss_sidespin_rpm;
 
     /* Swing-plane arc. plane_elev/plane_az are the swing-through direction
      * at full extension (the way the head travels through the ball) — for

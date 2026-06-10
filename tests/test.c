@@ -177,6 +177,23 @@ static void test_groundstroke(void) {
     serve_result_free(&rl);
 }
 
+/* A spun toss curves via Magnus — the new unified ball track carries spin for
+ * the toss too (a high, angled toss), not just the groundstroke incoming ball. */
+static void test_toss_spin(void) {
+    printf("toss spin curves the toss (Magnus):\n");
+    ServeParams p0; serve_params_defaults(&p0, MODE_SERVE_DEUCE);
+    ServeResult r0 = serve_simulate(&p0);
+    ServeParams p1 = p0; p1.toss_sidespin_rpm = 800.0;
+    p1.apex_time_s = serve_seed_apex_time(&p1);   /* re-time for the curved toss */
+    ServeResult r1 = serve_simulate(&p1);
+    double dz = r1.toss_te[2] - r0.toss_te[2];
+    printf("    toss endpoint z: nospin=%.3f  +800 sidespin=%.3f  (Δ=%.3f m)\n",
+           r0.toss_te[2], r1.toss_te[2], dz);
+    CHECK(fabs(dz) > 0.02, "toss sidespin curves the toss laterally (Δz=%.3f m)", dz);
+    CHECK(r1.contact, "a spun toss is still struck (the swing re-times)");
+    serve_result_free(&r0); serve_result_free(&r1);
+}
+
 /* The inverse toss solver hits the requested landing + apex + side. */
 static void test_toss_solver(void) {
     printf("toss solver hits its target:\n");
@@ -382,6 +399,7 @@ int main(void) {
     test_mistime();
     test_swing_steers();
     test_toss_solver();
+    test_toss_spin();
     test_groundstroke();
     test_humidity();
     test_pose();

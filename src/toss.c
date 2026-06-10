@@ -68,29 +68,46 @@ static inline void cross3(const double a[3], const double b[3], double o[3]) {
     o[2] = a[0]*b[1] - a[1]*b[0];
 }
 
-/* Gravity + quadratic drag, no spin/wind — the toss is slow enough that
- * drag is a minor correction, but we use the same ball props as the
- * flight model for consistency. */
-static void toss_deriv(const double s[6], double ds[6], double kd) {
+/* Integration coefficients for a ball track: drag (kd), Magnus (km) and the spin
+ * vector ω = (wx, 0, wz). Same convention as the flight model: ωz = −topspin,
+ * ωx = sidespin. A clean toss / spinless ball has wx = wz = 0, which zeroes the
+ * Magnus term and recovers the old planar integrator exactly. This is the one
+ * physical model behind BOTH the serve toss and the groundstroke incoming ball:
+ * a ball with a position, a velocity and a spin, flying under gravity. */
+typedef struct { double kd, km, wx, wz; } BallInt;
+
+static BallInt ball_int(const ServeParams *p, double spin_rpm, double sidespin_rpm) {
+    BallProps bp = ball_props_for_type(p->strike.ball_type);
+    double rho = (p->air_density > 0.0) ? p->air_density : AIR_RHO;
+    BallInt bi;
+    bi.kd = -bp.cd * rho * bp.area_m2 / (2.0 * bp.mass_kg);   /* quadratic drag */
+    bi.km =  bp.radius_m * rho * bp.area_m2 / (2.0 * bp.mass_kg); /* Magnus */
+    bi.wz = -spin_rpm     * M_PI / 30.0;   /* rpm → rad/s, ωz = −topspin */
+    bi.wx =  sidespin_rpm * M_PI / 30.0;   /* ωx = sidespin */
+    return bi;
+}
+
+/* Gravity + quadratic drag + Magnus. Drag damps along the velocity vector (each
+ * component scaled by the FULL speed |v|) so a spinless ball stays exactly in
+ * one vertical plane; the Magnus term km·(ω×v) with ω=(wx,0,wz) curves a
+ * spinning one off that plane. */
+static void toss_deriv(const double s[6], double ds[6], const BallInt *bi) {
     double vx = s[3], vy = s[4], vz = s[5];
-    /* Proper quadratic drag: damp along the velocity vector (each component
-     * scaled by the FULL speed |v|), not per-axis. This keeps the horizontal
-     * direction constant, so the toss stays exactly in one vertical plane. */
     double v = sqrt(vx*vx + vy*vy + vz*vz);
     ds[0] = vx; ds[1] = vy; ds[2] = vz;
-    ds[3] = kd * vx * v;
-    ds[4] = -G_TOSS + kd * vy * v;
-    ds[5] = kd * vz * v;
+    ds[3] = bi->kd * vx * v + bi->km * (-bi->wz * vy);
+    ds[4] = -G_TOSS + bi->kd * vy * v + bi->km * (bi->wz * vx - bi->wx * vz);
+    ds[5] = bi->kd * vz * v + bi->km * (bi->wx * vy);
 }
-static void toss_rk4(double s[6], double dt, double kd) {
+static void toss_rk4(double s[6], double dt, const BallInt *bi) {
     double k1[6], k2[6], k3[6], k4[6], tmp[6];
-    toss_deriv(s, k1, kd);
+    toss_deriv(s, k1, bi);
     for (int i = 0; i < 6; i++) tmp[i] = s[i] + 0.5*dt*k1[i];
-    toss_deriv(tmp, k2, kd);
+    toss_deriv(tmp, k2, bi);
     for (int i = 0; i < 6; i++) tmp[i] = s[i] + 0.5*dt*k2[i];
-    toss_deriv(tmp, k3, kd);
+    toss_deriv(tmp, k3, bi);
     for (int i = 0; i < 6; i++) tmp[i] = s[i] + dt*k3[i];
-    toss_deriv(tmp, k4, kd);
+    toss_deriv(tmp, k4, bi);
     for (int i = 0; i < 6; i++)
         s[i] += dt*(k1[i] + 2.0*k2[i] + 2.0*k3[i] + k4[i]) / 6.0;
 }
@@ -153,8 +170,7 @@ static void toss_outcome(const ServeParams *p, double apex[3], double te[3]) {
      * crossing to mm — and keeps the inverse solver (which calls this hundreds
      * of times) fast enough for live drag. */
     const double dt = 0.002;
-    BallProps bp = ball_props_for_type(p->strike.ball_type);
-    double kd = -bp.cd * (p->air_density > 0.0 ? p->air_density : AIR_RHO) * bp.area_m2 / (2.0 * bp.mass_kg);
+    BallInt bi = ball_int(p, p->toss_spin_rpm, p->toss_sidespin_rpm);
     double s[6]; toss_release_state(p, s);
     double ah = -INFINITY;
     apex[0]=s[0]; apex[1]=s[1]; apex[2]=s[2];
@@ -171,7 +187,7 @@ static void toss_outcome(const ServeParams *p, double apex[3], double te[3]) {
             return;
         }
         prev[0]=s[0]; prev[1]=s[1]; prev[2]=s[2];
-        toss_rk4(s, dt, kd);
+        toss_rk4(s, dt, &bi);
         t += dt;
     }
     te[0]=s[0]; te[1]=s[1]; te[2]=s[2];
@@ -231,8 +247,7 @@ static void swing_basis(const ServeParams *p, double RS[3], double a_hat[3],
  * the pivot sits — the contact lands on the forward part of the arc when RS is
  * behind, near the apex when RS is over the ball — so the swing meets the toss. */
 static double toss_crossing_time(const ServeParams *p) {
-    BallProps bp = ball_props_for_type(p->strike.ball_type);
-    double kd = -bp.cd * (p->air_density > 0.0 ? p->air_density : AIR_RHO) * bp.area_m2 / (2.0 * bp.mass_kg);
+    BallInt bi = ball_int(p, p->toss_spin_rpm, p->toss_sidespin_rpm);
     double RS[3], a_hat[3], e2[3], t0d[3];
     swing_basis(p, RS, a_hat, e2, t0d);
     double R = p->arm_length_m + p->racket_len_m;
@@ -259,7 +274,7 @@ static double toss_crossing_time(const ServeParams *p) {
          * racket meets the ball on the UNDERSIDE. Prefer that crossing. */
         if (s[4] < 0.0 && dcirc < best_dd) { best_dd = dcirc; best_dt = t; best_dphi = phi; }
         if (s[1] < 0.0 && t > 0.0) break;
-        toss_rk4(s, TOSS_DT, kd);
+        toss_rk4(s, TOSS_DT, &bi);
         t += TOSS_DT;
     }
     /* For a kick/2nd serve, take the DESCENDING crossing when the toss reaches
@@ -418,45 +433,48 @@ void serve_params_defaults(ServeParams *p, ShotMode mode) {
     p->air_humidity_pct = 0.0;      /* dry by default → no change vs the old model */
 }
 
-/* Build the incoming-ball track for a groundstroke: a projectile (gravity +
- * drag) that passes through the swing apex A at GS_T_REF, heading toward the
- * player with the configured incoming speed/elevation/azimuth. Fills the
- * position + velocity arrays over [0, TOSS_T_MAX] (RK4 is reversible to its
- * order, so we integrate forward from A and backward to t=0). Returns the sample
- * count. The arc∩track march then finds the contact (≈ A at GS_T_REF for a
- * well-timed swing; off it for a mistimed one). */
-static size_t build_incoming_track(const ServeParams *p, double kd,
-                                   const double A[3],
-                                   double *bx, double *by, double *bz,
-                                   double *vx, double *vy, double *vz,
-                                   size_t cap) {
+/* The ONE ball-track builder behind both shots — a ball with a known state at an
+ * anchor sample, flown under gravity + drag + Magnus (BallInt). Integrate forward
+ * from the anchor to the end of the window (or the ground) and backward to t=0
+ * (RK4 is reversible to its order). Returns the forward extent (sample count).
+ *   - serve toss   : anchor = the release state at sample 0 → forward only, stops
+ *                    when the toss lands;
+ *   - groundstroke : anchor = the incoming ball at the swing apex (GS_T_REF) →
+ *                    fills both ways so the ball flies IN to the contact.
+ * The contact march then finds where the swept racket meets this track. */
+static size_t build_ball_track(const double start[6], int anchor, const BallInt *bi,
+                               size_t cap,
+                               double *bx, double *by, double *bz,
+                               double *vx, double *vy, double *vz) {
+    if (anchor < 0) anchor = 0;
+    if (anchor >= (int)cap) anchor = (int)cap - 1;
+    size_t last = cap;
+    double s[6]; memcpy(s, start, sizeof s);
+    for (int i = anchor; i < (int)cap; i++) {           /* forward from the anchor */
+        bx[i]=s[0]; by[i]=s[1]; bz[i]=s[2]; vx[i]=s[3]; vy[i]=s[4]; vz[i]=s[5];
+        if (s[1] < 0.0 && i > anchor) { last = (size_t)i + 1; break; }  /* hit ground */
+        toss_rk4(s, TOSS_DT, bi);
+    }
+    if (anchor > 0) {                                    /* backward to t = 0 */
+        memcpy(s, start, sizeof s);
+        toss_rk4(s, -TOSS_DT, bi);
+        for (int i = anchor - 1; i >= 0; i--) {
+            bx[i]=s[0]; by[i]=s[1]; bz[i]=s[2]; vx[i]=s[3]; vy[i]=s[4]; vz[i]=s[5];
+            toss_rk4(s, -TOSS_DT, bi);
+        }
+    }
+    return last;
+}
+
+/* The incoming ball's world velocity at its anchor — heading at the player (−x),
+ * so the strike's az = atan2(−vz,−vx) / elev = asin(vy/|v|) recover the inputs. */
+static void incoming_vel(const ServeParams *p, double v[3]) {
     double spd = p->strike.in_speed;
     double el  = p->strike.in_elevation_deg * M_PI / 180.0;
     double az  = p->strike.in_azimuth_deg   * M_PI / 180.0;
-    /* World velocity heading at the player (−x), so the strike's
-     * az = atan2(−vz, −vx) / elev = asin(vy/|v|) recover the inputs. */
-    double vin[3] = {
-        -spd * cos(el) * cos(az),
-         spd * sin(el),
-        -spd * cos(el) * sin(az),
-    };
-
-    int apex = (int)(GS_T_REF / TOSS_DT + 0.5);
-    if (apex < 0) apex = 0;
-    if (apex >= (int)cap) apex = (int)cap - 1;
-
-    double s[6] = { A[0], A[1], A[2], vin[0], vin[1], vin[2] };
-    for (int i = apex; i < (int)cap; i++) {   /* forward from the apex */
-        bx[i]=s[0]; by[i]=s[1]; bz[i]=s[2]; vx[i]=s[3]; vy[i]=s[4]; vz[i]=s[5];
-        toss_rk4(s, TOSS_DT, kd);
-    }
-    s[0]=A[0]; s[1]=A[1]; s[2]=A[2]; s[3]=vin[0]; s[4]=vin[1]; s[5]=vin[2];
-    toss_rk4(s, -TOSS_DT, kd);
-    for (int i = apex - 1; i >= 0; i--) {      /* backward to t = 0 */
-        bx[i]=s[0]; by[i]=s[1]; bz[i]=s[2]; vx[i]=s[3]; vy[i]=s[4]; vz[i]=s[5];
-        toss_rk4(s, -TOSS_DT, kd);
-    }
-    return cap;
+    v[0] = -spd * cos(el) * cos(az);
+    v[1] =  spd * sin(el);
+    v[2] = -spd * cos(el) * sin(az);
 }
 
 ServeResult serve_simulate(const ServeParams *p) {
@@ -465,7 +483,6 @@ ServeResult serve_simulate(const ServeParams *p) {
     r.miss_distance_m = INFINITY;
 
     BallProps bp = ball_props_for_type(p->strike.ball_type);
-    double kd = -bp.cd * (p->air_density > 0.0 ? p->air_density : AIR_RHO) * bp.area_m2 / (2.0 * bp.mass_kg);
 
     /* ---- Swing geometry — arc pivots at RS in the swing plane. Computed first
      * because the groundstroke ball track is anchored at the swing apex.
@@ -487,7 +504,8 @@ ServeResult serve_simulate(const ServeParams *p) {
         pivot[2] + swing_radius * a_hat[2],
     };
 
-    /* ---- Ball track: the toss (serve) or the incoming ball (groundstroke) ---- */
+    /* ---- Ball track: ONE model for both shots. Build a start state + spin per
+     * mode, then build_ball_track flies it (gravity + drag + Magnus). ---- */
     size_t cap = (size_t)(TOSS_T_MAX / TOSS_DT) + 4;
     r.toss_x = malloc(cap * sizeof(double));
     r.toss_y = malloc(cap * sizeof(double));
@@ -495,35 +513,39 @@ ServeResult serve_simulate(const ServeParams *p) {
     double *vx = malloc(cap * sizeof(double));
     double *vy = malloc(cap * sizeof(double));
     double *vz = malloc(cap * sizeof(double));
-    size_t n = 0;
 
     toss_shoulder_ls(p, r.ls_pos);
 
+    double start[6];
+    int anchor;
+    BallInt bi;
     if (p->mode == MODE_GROUNDSTROKE) {
-        /* The incoming ball flies at the player (−x-ish), anchored to pass
-         * through the swing apex at GS_T_REF; the swing is auto-timed there. */
-        n = build_incoming_track(p, kd, apexpt,
-                                 r.toss_x, r.toss_y, r.toss_z, vx, vy, vz, cap);
+        /* IBS = the incoming ball at the swing apex (near contact), flying at the
+         * player; spin = the incoming ball's spin. */
+        double vin[3]; incoming_vel(p, vin);
+        start[0]=apexpt[0]; start[1]=apexpt[1]; start[2]=apexpt[2];
+        start[3]=vin[0];    start[4]=vin[1];    start[5]=vin[2];
+        anchor = (int)(GS_T_REF / TOSS_DT + 0.5);
+        bi = ball_int(p, p->strike.in_spin_rpm, p->strike.in_sidespin_rpm);
         r.toss_az_deg = p->strike.in_azimuth_deg;
+    } else {
+        /* IBS = the toss release state; spin = the (usually small) toss spin. */
+        toss_release_state(p, start);
+        anchor = 0;
+        bi = ball_int(p, p->toss_spin_rpm, p->toss_sidespin_rpm);
+        r.toss_az_deg = (fabs(start[3]) + fabs(start[5]) > 1e-6)
+                      ? atan2(start[5], start[3]) * 180.0/M_PI : 0.0;
+    }
+    size_t n = build_ball_track(start, anchor, &bi, cap,
+                                r.toss_x, r.toss_y, r.toss_z, vx, vy, vz);
+    r.toss_n = n;
+
+    if (p->mode == MODE_GROUNDSTROKE) {     /* IBE + apex metadata for the views */
         for (int k = 0; k < 3; k++) r.toss_apex[k] = apexpt[k];
         r.toss_te[0] = r.toss_x[n-1]; r.toss_te[1] = r.toss_y[n-1]; r.toss_te[2] = r.toss_z[n-1];
     } else {
-        double s[6];
-        toss_release_state(p, s);
-        r.toss_az_deg = (fabs(s[3]) + fabs(s[5]) > 1e-6)
-                      ? atan2(s[5], s[3]) * 180.0/M_PI : 0.0;
-        double t = 0.0;
-        while (t < TOSS_T_MAX && n < cap) {
-            r.toss_x[n] = s[0]; r.toss_y[n] = s[1]; r.toss_z[n] = s[2];
-            vx[n] = s[3]; vy[n] = s[4]; vz[n] = s[5];
-            n++;
-            if (s[1] < 0.0 && n > 1) break;   /* ball hit the ground */
-            toss_rk4(s, TOSS_DT, kd);
-            t += TOSS_DT;
-        }
         toss_outcome(p, r.toss_apex, r.toss_te);
     }
-    r.toss_n = n;
 
     /* ---- Racket arc samples across the whole window (for rendering) ---- */
     const size_t RKT_SAMPLES = 64;
