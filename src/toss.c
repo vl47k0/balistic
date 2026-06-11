@@ -54,7 +54,7 @@
  * through the swing apex at this moment, and the swing is auto-timed to be there
  * then — so a stock groundstroke contacts cleanly at full extension, and a
  * timing offset mistimes it (same as a serve's toss∩arc timing). */
-#define GS_T_REF       0.30
+#define GS_T_REF       0.78
 
 static inline double dot3(const double a[3], const double b[3]) {
     return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
@@ -361,6 +361,35 @@ double serve_solve_toss_side(ServeParams *p, double side_of_ls_m) {
     return te[2] - ls[2];
 }
 
+bool serve_solve_feed(ServeParams *p, double bounce_x) {
+    /* The incoming ball bounced at world x = bounce_x on the player's side and
+     * must pass through the swing's contact (the reach apex) at the configured
+     * pace (in_speed). Solve the drag-free post-bounce projectile for the
+     * elevation it has at the contact: a deep bounce → a descending contact, a
+     * short bounce → a rising one. So in_elevation is no longer free — it's a
+     * consequence of where the ball bounced. */
+    double pivot[3], a_hat[3], e2[3], t0d[3];
+    swing_basis(p, pivot, a_hat, e2, t0d);
+    double R = p->arm_length_m + p->racket_len_m;
+    double cx = pivot[0] + R * a_hat[0];           /* contact = swing apex */
+    double cy = pivot[1] + R * a_hat[1];
+    double g = G_TOSS, V = p->strike.in_speed;
+    double dx = bounce_x - cx;                      /* bounce → contact, toward the player */
+    if (dx < 0.3 || V < 1.0) return false;          /* bounce must be in front (net side) */
+    /* (dx/t)² + (cy/t − ½ g t)² = V²  →  ¼g²u² − (V²+cy·g)u + (dx²+cy²) = 0, u=t².
+     * The − root is the flatter (drive) trajectory; the + root is a lob. */
+    double Bq = V*V + cy*g;
+    double disc = Bq*Bq - g*g*(dx*dx + cy*cy);
+    if (disc < 0.0) return false;                   /* bounce too far for this pace */
+    double uq = (Bq - sqrt(disc)) / (0.5*g*g);
+    if (uq <= 1e-6) return false;
+    double t = sqrt(uq);
+    double vh  = dx / t;
+    double vyc = cy/t - 0.5*g*t;                     /* + rising, − descending at contact */
+    p->strike.in_elevation_deg = atan2(vyc, vh) * 180.0 / M_PI;
+    return true;
+}
+
 void serve_params_defaults(ServeParams *p, ShotMode mode) {
     memset(p, 0, sizeof *p);
     strike_params_defaults(&p->strike, mode);
@@ -394,9 +423,14 @@ void serve_params_defaults(ServeParams *p, ShotMode mode) {
         p->swing_speed_mps  = 31.0;        /* groundstroke head speed */
         p->swing_start_speed_mps = 16.0;
         p->plane_elev_deg   = 14.0;        /* swing low-to-high (topspin) */
-        p->contact_angle_deg = -9.0;       /* brush up the back → topspin */
+        p->contact_angle_deg = -13.0;      /* heavier brush → enough topspin to dip a
+                                            * rising (service-line-bounce) feed back IN */
         p->plane_az_deg     = 0.0;
         p->swing_plane_deg  = 90.0;        /* drive straight ahead, down the middle */
+        /* Constrain the incoming ball to a LEGAL feed bouncing ~8 m in front (the
+         * service-line area), so in_elevation follows from the bounce, not a free
+         * number. (Done after the swing geometry it depends on is set.) */
+        serve_solve_feed(p, COURT_X_LO + 8.0);
     } else {
         const bool ad = (mode == MODE_SERVE_AD);
         p->shoulder_to_net_deg = 60.0;
@@ -443,7 +477,7 @@ void serve_params_defaults(ServeParams *p, ShotMode mode) {
  *                    fills both ways so the ball flies IN to the contact.
  * The contact march then finds where the swept racket meets this track. */
 static size_t build_ball_track(const double start[6], int anchor, const BallInt *bi,
-                               size_t cap,
+                               double bounce_cor, size_t cap,
                                double *bx, double *by, double *bz,
                                double *vx, double *vy, double *vz) {
     if (anchor < 0) anchor = 0;
@@ -459,6 +493,15 @@ static size_t build_ball_track(const double start[6], int anchor, const BallInt 
         memcpy(s, start, sizeof s);
         toss_rk4(s, -TOSS_DT, bi);
         for (int i = anchor - 1; i >= 0; i--) {
+            /* A real feed BOUNCED in front of the player before rising to the
+             * contact. Going back in time, when the track dips through the
+             * ground we un-bounce it: the pre-bounce descent was steeper by 1/COR
+             * (and re-seat it just above the floor), so the corridor reads
+             * feed → bounce → rise-to-contact. bounce_cor ≤ 0 disables it. */
+            if (bounce_cor > 0.0 && s[1] < 0.0) {
+                s[1] = 1e-4;
+                if (s[4] > 0.0) s[4] = -s[4] / bounce_cor;   /* rising → steeper descent */
+            }
             bx[i]=s[0]; by[i]=s[1]; bz[i]=s[2]; vx[i]=s[3]; vy[i]=s[4]; vz[i]=s[5];
             toss_rk4(s, -TOSS_DT, bi);
         }
@@ -536,7 +579,8 @@ ServeResult serve_simulate(const ServeParams *p) {
         r.toss_az_deg = (fabs(start[3]) + fabs(start[5]) > 1e-6)
                       ? atan2(start[5], start[3]) * 180.0/M_PI : 0.0;
     }
-    size_t n = build_ball_track(start, anchor, &bi, cap,
+    double bounce_cor = (p->mode == MODE_GROUNDSTROKE) ? p->cor_ground : 0.0;
+    size_t n = build_ball_track(start, anchor, &bi, bounce_cor, cap,
                                 r.toss_x, r.toss_y, r.toss_z, vx, vy, vz);
     r.toss_n = n;
     for (int k = 0; k < 3; k++) { r.ibs[k] = start[k]; r.ibs_vel[k] = start[k+3]; }
@@ -594,6 +638,16 @@ ServeResult serve_simulate(const ServeParams *p) {
     r.contact_pos[0] = r.toss_x[contact_i];
     r.contact_pos[1] = r.toss_y[contact_i];
     r.contact_pos[2] = r.toss_z[contact_i];
+
+    /* A groundstroke's incoming ball is "used up" at the strike: end its drawn
+     * track at the contact (IBE = contact) instead of trailing the un-hit ball
+     * behind the player. (A serve's toss keeps its full arc to the ground.) */
+    if (p->mode == MODE_GROUNDSTROKE) {
+        r.toss_n = contact_i + 1;
+        r.toss_te[0] = r.contact_pos[0];
+        r.toss_te[1] = r.contact_pos[1];
+        r.toss_te[2] = r.contact_pos[2];
+    }
     double phi_c = omega * (r.t_contact - p->apex_time_s);
     r.phi_contact_deg = phi_c * 180.0/M_PI;
 

@@ -177,6 +177,38 @@ static void test_groundstroke(void) {
     serve_result_free(&rl);
 }
 
+/* The groundstroke feed solver constrains the incoming ball to a LEGAL feed:
+ * in_elevation follows from where the ball bounced (deeper → descending), and the
+ * default feed clears the net, bounces in front of the player, and lands IN. */
+static void test_feed_solver(void) {
+    printf("groundstroke feed solver:\n");
+    double prev = 1e9;
+    for (double bx = 13.0; bx <= 17.0; bx += 1.0) {
+        ServeParams p; serve_params_defaults(&p, MODE_GROUNDSTROKE);
+        CHECK(serve_solve_feed(&p, bx), "a feed reaches the contact for bounce x=%.0f", bx);
+        CHECK(p.strike.in_elevation_deg < prev + 1e-6, "deeper bounce → more descending contact");
+        prev = p.strike.in_elevation_deg;
+    }
+    /* The default groundstroke feed (solved in serve_params_defaults): comes over
+     * the net, bounces on the player's side, and the return lands IN. */
+    ServeParams p; serve_params_defaults(&p, MODE_GROUNDSTROKE);
+    p.apex_time_s = serve_seed_apex_time(&p);
+    ServeResult r = serve_simulate(&p);
+    double ynet = -1.0; size_t bi = 0; double miny = 1e9;
+    for (size_t i = 1; i < r.toss_n; i++)
+        if ((r.toss_x[i-1]-NET_X)*(r.toss_x[i]-NET_X) <= 0.0 && ynet < 0) ynet = r.toss_y[i];
+    for (size_t i = 0; i < r.toss_n; i++) if (r.toss_y[i] < miny) { miny = r.toss_y[i]; bi = i; }
+    printf("    default feed: crosses net at %.2f m, bounces at x=%.1f, verdict=%s\n",
+           ynet, r.toss_x[bi], verdict_str(r.flight.verdict));
+    CHECK(ynet > NET_HEIGHT, "the feed clears the net (%.2f > %.2f)", ynet, NET_HEIGHT);
+    CHECK(r.toss_x[bi] > COURT_X_LO && r.toss_x[bi] < NET_X, "the feed bounces in front (on the player's side)");
+    CHECK(r.flight.verdict == VERDICT_IN, "the return off the legal feed lands IN");
+    serve_result_free(&r);
+
+    ServeParams pf; serve_params_defaults(&pf, MODE_GROUNDSTROKE);
+    CHECK(!serve_solve_feed(&pf, 60.0), "a feed bounce beyond reach returns false");
+}
+
 /* A spun toss curves via Magnus — the new unified ball track carries spin for
  * the toss too (a high, angled toss), not just the groundstroke incoming ball. */
 static void test_toss_spin(void) {
@@ -399,6 +431,7 @@ int main(void) {
     test_mistime();
     test_swing_steers();
     test_toss_solver();
+    test_feed_solver();
     test_toss_spin();
     test_groundstroke();
     test_humidity();

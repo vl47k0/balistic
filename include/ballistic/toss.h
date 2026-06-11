@@ -225,6 +225,14 @@ bool serve_solve_toss(ServeParams *p, double fwd_of_baseline_m, double apex_h_m)
  * caller surfaces the resulting contact verdict. Returns the achieved offset. */
 double serve_solve_toss_side(ServeParams *p, double side_of_ls_m);
 
+/* Groundstroke feed solver: constrain the incoming ball to a legal feed that
+ * bounced at world x = bounce_x on the player's side and passes through the
+ * swing's contact at the configured pace (strike.in_speed). Sets
+ * strike.in_elevation_deg accordingly (a deep bounce → descending contact, a
+ * short bounce → rising). Returns false if no feed at that pace reaches the
+ * contact. So the incoming geometry stops being free — it follows from the bounce. */
+bool serve_solve_feed(ServeParams *p, double bounce_x);
+
 void serve_result_free(ServeResult *r);
 
 /* Build a stick-figure pose for the player at the moment of contact, from a
