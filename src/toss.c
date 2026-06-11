@@ -539,6 +539,7 @@ ServeResult serve_simulate(const ServeParams *p) {
     size_t n = build_ball_track(start, anchor, &bi, cap,
                                 r.toss_x, r.toss_y, r.toss_z, vx, vy, vz);
     r.toss_n = n;
+    for (int k = 0; k < 3; k++) { r.ibs[k] = start[k]; r.ibs_vel[k] = start[k+3]; }
 
     if (p->mode == MODE_GROUNDSTROKE) {     /* IBE + apex metadata for the views */
         for (int k = 0; k < 3; k++) r.toss_apex[k] = apexpt[k];

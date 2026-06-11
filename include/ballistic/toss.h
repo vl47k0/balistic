@@ -159,6 +159,11 @@ typedef struct {
     double toss_apex[3];           /* highest point of the toss path (world) */
     double toss_te[3];             /* toss endpoint: where the toss would land on the
                                     * ground if it were never struck (world; y≈0) */
+    double ibs[3];                 /* Incoming Ball Start — the ball-track anchor:
+                                    * the release point for a serve, the near-contact
+                                    * anchor for a groundstroke (world) */
+    double ibs_vel[3];             /* the ball's velocity at IBS; −ibs_vel points back
+                                    * to where the ball came from (the "feed" side) */
 
     /* Contact-frame vectors (world coords) — for drawing the racket face
      * disc + its normal + the velocity arrows so the contact angle reads
